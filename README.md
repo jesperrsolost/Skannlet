@@ -13,14 +13,14 @@ Applikasjonen lagrer data lokalt på enheten. Den har ingen ekstern database, in
 - Skanning via Zebra-/tastaturinput som avsluttes med Enter.
 - Automatisk oppslag av produktnavn fra importert produktliste.
 - Antallshåndtering for korte varenummer.
-- Registrering av unike varer med mer enn seks siffer.
+- Unik registrering for strekkoder med mer enn seks siffer.
 - Søk i prosjektlisten.
 - Redigering og sletting av skannede rader før prosjektet låses.
 - Eksport av prosjekt til CSV.
 - Utskrift/deling av følgeseddel som PDF.
 - Automatisk låsing av prosjekt etter eksport.
 - Lokal import og sletting av produktliste.
-- Supportmeny med TeamViewer QuickSupport.
+- Supportmeny som forsøker å åpne TeamViewer QuickSupport.
 - Om-side med versjon, lisens og lenke til kildekode.
 
 ## Brukerflyt
