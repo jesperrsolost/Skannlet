@@ -1,3 +1,9 @@
+
+<p align="center">
+  <img src="app/src/main/res/drawable/poster.png" alt="Poster" width="75%">
+</p>
+
+
 # Skannlet
 
 Skannlet er en Android-applikasjon for lokal registrering av varer med strekkode. Appen er laget for prosjektbasert skanning der hver skanning knyttes til et prosjekt, og prosjektdata kan eksporteres som CSV og PDF/følgeseddel.
