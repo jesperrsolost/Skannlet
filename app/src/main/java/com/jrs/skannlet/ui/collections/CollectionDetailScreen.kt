@@ -1,9 +1,7 @@
 package com.jrs.skannlet.ui.collections
 
 import android.content.Context
-import android.print.PrintAttributes
 import android.print.PrintManager
-import android.util.Base64
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
@@ -51,6 +49,8 @@ import com.jrs.skannlet.app.CollectionPrintDocument
 import com.jrs.skannlet.app.CollectionPrintRow
 import com.jrs.skannlet.app.CollectionsUiState
 import com.jrs.skannlet.app.ScanRowUiState
+import com.jrs.skannlet.app.collectionPrintAttributes
+import com.jrs.skannlet.app.collectionPrintHtml
 import com.jrs.skannlet.ui.components.NameInputDialog
 import com.jrs.skannlet.ui.components.QuantityControls
 import com.jrs.skannlet.util.formatDateTime
@@ -360,13 +360,14 @@ private fun printCollection(
             printManager.print(
                 jobName,
                 adapter,
-                PrintAttributes.Builder().build(),
+                collectionPrintAttributes(),
             )
         }
     }
+    val printDocument = detail.toPrintDocument(activeUserName)
     webView.loadDataWithBaseURL(
         null,
-        context.collectionPrintHtml(detail, activeUserName),
+        context.collectionPrintHtml(printDocument),
         "text/html",
         "UTF-8",
         null,
@@ -388,19 +389,6 @@ private fun CollectionDetailUiState.printFileName(): String =
 private fun CollectionDetailUiState.printTitle(): String =
     "Følgeseddel #$projectNumber | $name"
 
-private fun Context.collectionPrintHtml(
-    detail: CollectionDetailUiState,
-    activeUserName: String?,
-): String = detail.toPrintHtml(
-    activeUserName = activeUserName,
-    logoDataUri = pngResourceDataUri(R.drawable.omflogo),
-)
-
-private fun Context.pngResourceDataUri(resourceId: Int): String =
-    resources.openRawResource(resourceId).use { inputStream ->
-        "data:image/png;base64,${Base64.encodeToString(inputStream.readBytes(), Base64.NO_WRAP)}"
-    }
-
 private fun CollectionDetailUiState.toPrintDocument(activeUserName: String?): CollectionPrintDocument {
     val printedBy = activeUserName?.takeIf { it.isNotBlank() } ?: "Ukjent bruker"
     return CollectionPrintDocument(
@@ -415,126 +403,6 @@ private fun CollectionDetailUiState.toPrintDocument(activeUserName: String?): Co
             )
         },
     )
-}
-
-private fun CollectionDetailUiState.toPrintHtml(
-    activeUserName: String?,
-    logoDataUri: String,
-): String {
-    val printedBy = activeUserName?.takeIf { it.isNotBlank() } ?: "Ukjent bruker"
-    val rowsHtml = rows.joinToString(separator = "\n") { row ->
-        """
-        <tr>
-            <td>${row.quantity}</td>
-            <td></td>
-            <td></td>
-            <td>${row.barcode.escapeHtml()}</td>
-            <td>${row.productName.escapeHtml()}</td>
-            <td>${formatDateTime(row.createdAt).escapeHtml()}</td>
-            <td></td>
-        </tr>
-        """.trimIndent()
-    }
-
-    return """
-        <!doctype html>
-        <html lang="no">
-        <head>
-            <meta charset="utf-8">
-            <title>${printTitle().escapeHtml()}</title>
-            <style>
-                body {
-                    color: #1b1b1f;
-                    font-family: sans-serif;
-                    margin: 32px;
-                }
-                .print-header {
-                    align-items: flex-start;
-                    display: flex;
-                    gap: 24px;
-                    justify-content: space-between;
-                    margin-bottom: 8px;
-                }
-                h1 {
-                    font-size: 24px;
-                    margin: 0;
-                }
-                .logo {
-                    height: 48px;
-                    max-width: 180px;
-                    object-fit: contain;
-                }
-                .meta {
-                    color: #555862;
-                    font-size: 13px;
-                    margin-bottom: 24px;
-                }
-                table {
-                    border-collapse: collapse;
-                    width: 100%;
-                }
-                th,
-                td {
-                    border-bottom: 1px solid #d7d8df;
-                    padding: 8px;
-                    text-align: left;
-                    vertical-align: top;
-                }
-                th {
-                    background: #f0f1f7;
-                    font-weight: 700;
-                }
-                td:nth-child(1),
-                th:nth-child(1),
-                td:nth-child(2),
-                th:nth-child(2),
-                td:nth-child(3),
-                th:nth-child(3) {
-                    text-align: right;
-                    width: 64px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="print-header">
-                <h1>${printTitle().escapeHtml()}</h1>
-                <img class="logo" src="${logoDataUri.escapeHtml()}" alt="OM Fjeld logo">
-            </div>
-            <div class="meta">
-                ${scanCount} skanninger | Sist endret: ${formatDateTime(updatedAt).escapeHtml()} | printet av: ${printedBy.escapeHtml()}
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Ant. bestilt</th>
-                        <th>Ant. levert</th>
-                        <th>Rest</th>
-                        <th>Strekkode</th>
-                        <th>Produkt</th>
-                        <th>Opprettet</th>
-                        <th>Kommentar</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    $rowsHtml
-                </tbody>
-            </table>
-        </body>
-        </html>
-    """.trimIndent()
-}
-
-private fun String.escapeHtml(): String = buildString(length) {
-    this@escapeHtml.forEach { char ->
-        when (char) {
-            '&' -> append("&amp;")
-            '<' -> append("&lt;")
-            '>' -> append("&gt;")
-            '"' -> append("&quot;")
-            '\'' -> append("&#39;")
-            else -> append(char)
-        }
-    }
 }
 
 @Composable

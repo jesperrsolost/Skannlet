@@ -7,9 +7,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.pdf.PdfDocument
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.layout.padding
@@ -125,13 +125,11 @@ private suspend fun shareCollectionExport(
 ) {
     val exportUris = arrayListOf(effect.csvUri)
     val shareType = try {
-        exportUris += withContext(Dispatchers.IO) {
-            createPdfFromDocument(
-                context = context,
-                document = effect.printDocument,
-                fileName = effect.printFileName,
-            )
-        }
+        exportUris += createPdfFromDocument(
+            context = context,
+            document = effect.printDocument,
+            fileName = effect.printFileName,
+        )
         "*/*"
     } catch (exception: Exception) {
         if (exception is CancellationException) throw exception
@@ -161,11 +159,11 @@ private suspend fun shareCollectionExport(
     }
 }
 
-private fun createPdfFromDocument(
+private suspend fun createPdfFromDocument(
     context: Context,
     document: CollectionPrintDocument,
     fileName: String,
-): Uri {
+): Uri = withContext(Dispatchers.IO) {
     val appContext = context.applicationContext
     val exportDir = File(appContext.cacheDir, "exports").apply { mkdirs() }
     val pdfFile = File(exportDir, fileName)
@@ -181,7 +179,7 @@ private fun createPdfFromDocument(
         logo?.recycle()
     }
 
-    return FileProvider.getUriForFile(
+    FileProvider.getUriForFile(
         appContext,
         "${appContext.packageName}.fileprovider",
         pdfFile,
@@ -203,7 +201,7 @@ private fun writeCollectionPdf(
 
         document.rows.forEach { row ->
             val rowHeight = row.heightForPdf()
-            if (y + rowHeight > A4_PAGE_HEIGHT - PAGE_MARGIN) {
+            if (y + rowHeight > PDF_PAGE_HEIGHT - PAGE_MARGIN) {
                 pdfDocument.finishPage(page)
                 pageNumber++
                 page = pdfDocument.startCollectionPage(pageNumber)
@@ -224,7 +222,7 @@ private fun writeCollectionPdf(
 }
 
 private fun PdfDocument.startCollectionPage(pageNumber: Int): PdfDocument.Page {
-    val pageInfo = PdfDocument.PageInfo.Builder(A4_PAGE_WIDTH, A4_PAGE_HEIGHT, pageNumber).create()
+    val pageInfo = PdfDocument.PageInfo.Builder(PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, pageNumber).create()
     val page = startPage(pageInfo)
     page.canvas.drawColor(Color.WHITE)
     return page
@@ -245,23 +243,37 @@ private fun drawDocumentHeader(
         textSize = 13f
     }
 
-    canvas.drawText(document.title, PAGE_MARGIN, PAGE_MARGIN + 24f, titlePaint)
-    logo?.let {
-        val maxLogoWidth = 180f
-        val maxLogoHeight = 48f
-        val scale = minOf(maxLogoWidth / it.width, maxLogoHeight / it.height)
+    val logoPlacement = logo?.let {
+        val scale = minOf(MAX_LOGO_WIDTH / it.width, MAX_LOGO_HEIGHT / it.height)
         val logoWidth = it.width * scale
         val logoHeight = it.height * scale
-        val left = A4_PAGE_WIDTH - PAGE_MARGIN - logoWidth
+        val left = PDF_PAGE_WIDTH - PAGE_MARGIN - logoWidth
+        it to RectF(left, PAGE_MARGIN, left + logoWidth, PAGE_MARGIN + logoHeight)
+    }
+    val titleMaxWidth = logoPlacement?.let { (_, bounds) ->
+        bounds.left - PAGE_MARGIN - HEADER_TITLE_LOGO_GAP
+    } ?: CONTENT_WIDTH
+    val titleBaseline = PAGE_MARGIN + 24f
+    val titleLines = document.title.wrapForPdf(titlePaint, titleMaxWidth)
+
+    titleLines.forEachIndexed { index, line ->
+        canvas.drawText(line, PAGE_MARGIN, titleBaseline + index * HEADER_TITLE_LINE_HEIGHT, titlePaint)
+    }
+    logoPlacement?.let { (bitmap, bounds) ->
         canvas.drawBitmap(
-            it,
+            bitmap,
             null,
-            RectF(left, PAGE_MARGIN, left + logoWidth, PAGE_MARGIN + logoHeight),
+            bounds,
             Paint(Paint.ANTI_ALIAS_FLAG),
         )
     }
-    canvas.drawText(document.metaText, PAGE_MARGIN, PAGE_MARGIN + 58f, metaPaint)
-    return PAGE_MARGIN + 86f
+
+    val titleBottom = titleBaseline + (titleLines.size - 1) * HEADER_TITLE_LINE_HEIGHT + HEADER_TITLE_DESCENT
+    val headerContentBottom = maxOf(titleBottom, logoPlacement?.second?.bottom ?: PAGE_MARGIN, PAGE_MARGIN + MAX_LOGO_HEIGHT)
+    val metaBaseline = headerContentBottom + HEADER_META_TOP_GAP
+
+    canvas.drawText(document.metaText, PAGE_MARGIN, metaBaseline, metaPaint)
+    return metaBaseline + HEADER_AFTER_META_GAP
 }
 
 private fun drawTableHeader(
@@ -274,14 +286,22 @@ private fun drawTableHeader(
     }
     val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(27, 27, 31)
-        textSize = 11f
+        textSize = TABLE_TEXT_SIZE
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    canvas.drawRect(PAGE_MARGIN, y, A4_PAGE_WIDTH - PAGE_MARGIN, y + TABLE_HEADER_HEIGHT, headerBackgroundPaint)
-    canvas.drawText("Antall", COL_QTY_RIGHT - CELL_PADDING - headerPaint.measureText("Antall"), y + 21f, headerPaint)
-    canvas.drawText("Strekkode", COL_BARCODE_LEFT + CELL_PADDING, y + 21f, headerPaint)
-    canvas.drawText("Produkt", COL_PRODUCT_LEFT + CELL_PADDING, y + 21f, headerPaint)
-    canvas.drawText("Opprettet", COL_CREATED_LEFT + CELL_PADDING, y + 21f, headerPaint)
+
+    canvas.drawRect(PAGE_MARGIN, y, PDF_PAGE_WIDTH - PAGE_MARGIN, y + TABLE_HEADER_HEIGHT, headerBackgroundPaint)
+    PDF_COLUMNS.forEach { column ->
+        drawCellText(
+            canvas = canvas,
+            text = column.title,
+            paint = headerPaint,
+            left = column.left,
+            top = y,
+            width = column.width,
+            alignRight = column.alignRight,
+        )
+    }
     return y + TABLE_HEADER_HEIGHT
 }
 
@@ -293,31 +313,49 @@ private fun drawRow(
 ) {
     val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(27, 27, 31)
-        textSize = 11f
+        textSize = TABLE_TEXT_SIZE
     }
     val dividerPaint = Paint().apply {
         color = Color.rgb(215, 216, 223)
         strokeWidth = 1f
     }
-    val quantityPaint = Paint(bodyPaint).apply {
-        textAlign = Paint.Align.RIGHT
-    }
-    val productLines = row.productName.wrapForPdf(bodyPaint, COL_CREATED_LEFT - COL_PRODUCT_LEFT - CELL_PADDING * 2)
-    val baseline = y + 20f
 
-    canvas.drawText(row.quantity, COL_QTY_RIGHT - CELL_PADDING, baseline, quantityPaint)
-    canvas.drawText(row.barcode, COL_BARCODE_LEFT + CELL_PADDING, baseline, bodyPaint)
-    productLines.forEachIndexed { index, line ->
-        canvas.drawText(line, COL_PRODUCT_LEFT + CELL_PADDING, baseline + index * ROW_LINE_HEIGHT, bodyPaint)
+    drawCellText(canvas, row.quantity, bodyPaint, COL_DELIVERED_LEFT, y, COL_DELIVERED_WIDTH, alignRight = true)
+    drawCellText(canvas, row.barcode, bodyPaint, COL_BARCODE_LEFT, y, COL_BARCODE_WIDTH)
+    drawCellText(canvas, row.productName, bodyPaint, COL_PRODUCT_LEFT, y, COL_PRODUCT_WIDTH)
+    drawCellText(canvas, row.createdAt, bodyPaint, COL_CREATED_LEFT, y, COL_CREATED_WIDTH)
+    canvas.drawLine(PAGE_MARGIN, y + rowHeight, PDF_PAGE_WIDTH - PAGE_MARGIN, y + rowHeight, dividerPaint)
+}
+
+private fun drawCellText(
+    canvas: android.graphics.Canvas,
+    text: String,
+    paint: Paint,
+    left: Float,
+    top: Float,
+    width: Float,
+    alignRight: Boolean = false,
+) {
+    val lines = text.wrapForPdf(paint, width - CELL_PADDING * 2)
+    val x = if (alignRight) left + width - CELL_PADDING else left + CELL_PADDING
+    val alignedPaint = if (alignRight) {
+        Paint(paint).apply { textAlign = Paint.Align.RIGHT }
+    } else {
+        paint
     }
-    canvas.drawText(row.createdAt, COL_CREATED_LEFT + CELL_PADDING, baseline, bodyPaint)
-    canvas.drawLine(PAGE_MARGIN, y + rowHeight, A4_PAGE_WIDTH - PAGE_MARGIN, y + rowHeight, dividerPaint)
+
+    lines.forEachIndexed { index, line ->
+        canvas.drawText(line, x, top + CELL_PADDING + ROW_TEXT_BASELINE + index * ROW_LINE_HEIGHT, alignedPaint)
+    }
 }
 
 private fun CollectionPrintRow.heightForPdf(): Float {
-    val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 11f }
-    val productLines = productName.wrapForPdf(bodyPaint, COL_CREATED_LEFT - COL_PRODUCT_LEFT - CELL_PADDING * 2)
-    return maxOf(TABLE_ROW_MIN_HEIGHT, 18f + productLines.size * ROW_LINE_HEIGHT)
+    val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = TABLE_TEXT_SIZE }
+    val barcodeLines = barcode.wrapForPdf(bodyPaint, COL_BARCODE_WIDTH - CELL_PADDING * 2)
+    val productLines = productName.wrapForPdf(bodyPaint, COL_PRODUCT_WIDTH - CELL_PADDING * 2)
+    val createdLines = createdAt.wrapForPdf(bodyPaint, COL_CREATED_WIDTH - CELL_PADDING * 2)
+    val lineCount = maxOf(1, barcodeLines.size, productLines.size, createdLines.size)
+    return maxOf(TABLE_ROW_MIN_HEIGHT, CELL_PADDING * 2 + lineCount * ROW_LINE_HEIGHT)
 }
 
 private fun String.wrapForPdf(
@@ -339,14 +377,52 @@ private fun String.wrapForPdf(
     return lines.ifEmpty { listOf("") }
 }
 
-private const val A4_PAGE_WIDTH = 595
-private const val A4_PAGE_HEIGHT = 842
+private data class PdfColumn(
+    val title: String,
+    val left: Float,
+    val width: Float,
+    val alignRight: Boolean = false,
+)
+
+private const val PDF_PAGE_WIDTH = 612
+private const val PDF_PAGE_HEIGHT = 792
 private const val PAGE_MARGIN = 32f
-private const val TABLE_HEADER_HEIGHT = 32f
-private const val TABLE_ROW_MIN_HEIGHT = 34f
-private const val ROW_LINE_HEIGHT = 14f
+private const val CONTENT_WIDTH = PDF_PAGE_WIDTH - PAGE_MARGIN * 2
+private const val MAX_LOGO_WIDTH = 180f
+private const val MAX_LOGO_HEIGHT = 48f
+private const val HEADER_TITLE_LOGO_GAP = 24f
+private const val HEADER_TITLE_LINE_HEIGHT = 28f
+private const val HEADER_TITLE_DESCENT = 6f
+private const val HEADER_META_TOP_GAP = 10f
+private const val HEADER_AFTER_META_GAP = 28f
+private const val TABLE_TEXT_SIZE = 16f
+private const val TABLE_HEADER_HEIGHT = 56f
+private const val TABLE_ROW_MIN_HEIGHT = 36f
+private const val ROW_LINE_HEIGHT = 20f
+private const val ROW_TEXT_BASELINE = 16f
 private const val CELL_PADDING = 8f
-private const val COL_QTY_RIGHT = PAGE_MARGIN + 64f
-private const val COL_BARCODE_LEFT = COL_QTY_RIGHT
-private const val COL_PRODUCT_LEFT = COL_BARCODE_LEFT + 135f
-private const val COL_CREATED_LEFT = A4_PAGE_WIDTH - PAGE_MARGIN - 135f
+private const val COL_ORDERED_WIDTH = 64f
+private const val COL_DELIVERED_WIDTH = 64f
+private const val COL_REST_WIDTH = 48f
+private const val COL_BARCODE_WIDTH = 90f
+private const val COL_PRODUCT_WIDTH = 135f
+private const val COL_CREATED_WIDTH = 82f
+private const val COL_COMMENT_WIDTH =
+    CONTENT_WIDTH - COL_ORDERED_WIDTH - COL_DELIVERED_WIDTH - COL_REST_WIDTH -
+        COL_BARCODE_WIDTH - COL_PRODUCT_WIDTH - COL_CREATED_WIDTH
+private const val COL_DELIVERED_LEFT = PAGE_MARGIN
+private const val COL_ORDERED_LEFT = COL_DELIVERED_LEFT + COL_DELIVERED_WIDTH
+private const val COL_REST_LEFT = COL_ORDERED_LEFT + COL_ORDERED_WIDTH
+private const val COL_BARCODE_LEFT = COL_REST_LEFT + COL_REST_WIDTH
+private const val COL_PRODUCT_LEFT = COL_BARCODE_LEFT + COL_BARCODE_WIDTH
+private const val COL_CREATED_LEFT = COL_PRODUCT_LEFT + COL_PRODUCT_WIDTH
+private const val COL_COMMENT_LEFT = COL_CREATED_LEFT + COL_CREATED_WIDTH
+private val PDF_COLUMNS = listOf(
+    PdfColumn("Ant. levert", COL_DELIVERED_LEFT, COL_DELIVERED_WIDTH, alignRight = true),
+    PdfColumn("Ant. bestilt", COL_ORDERED_LEFT, COL_ORDERED_WIDTH, alignRight = true),
+    PdfColumn("Rest", COL_REST_LEFT, COL_REST_WIDTH, alignRight = true),
+    PdfColumn("Strekkode", COL_BARCODE_LEFT, COL_BARCODE_WIDTH),
+    PdfColumn("Produkt", COL_PRODUCT_LEFT, COL_PRODUCT_WIDTH),
+    PdfColumn("Opprettet", COL_CREATED_LEFT, COL_CREATED_WIDTH),
+    PdfColumn("Kommentar", COL_COMMENT_LEFT, COL_COMMENT_WIDTH),
+)
