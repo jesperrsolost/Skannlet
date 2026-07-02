@@ -13,3 +13,16 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Kotlin local state
+.kotlin/
+
+# JVM crash/replay logs
+hs_err_pid*.log
+replay_pid*.log
+**/hs_err_pid*.log
+**/replay_pid*.log
+
+# Android Studio local/user files
+/.idea/.name
+/.idea/markdown.xml
