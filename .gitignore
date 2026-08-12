@@ -23,6 +23,10 @@ replay_pid*.log
 **/hs_err_pid*.log
 **/replay_pid*.log
 
+# Android release signing keys
+*.jks
+*.keystore
+
 # Android Studio local/user files
 /.idea/.name
 /.idea/markdown.xml

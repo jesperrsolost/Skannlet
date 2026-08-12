@@ -27,10 +27,10 @@ import com.jrs.skannlet.R
 import com.jrs.skannlet.app.ScanRowUiState
 import com.jrs.skannlet.app.ScanUiState
 import com.jrs.skannlet.app.UserUiState
-import com.jrs.skannlet.scanner.ScannerInputHandler
 import com.jrs.skannlet.ui.components.AppHeader
 import com.jrs.skannlet.ui.components.QuantityControls
 import com.jrs.skannlet.ui.components.UserPickerDialog
+import com.jrs.skannlet.ui.scan.components.ScannerInputHandler
 import com.jrs.skannlet.util.formatDateTime
 
 @Composable

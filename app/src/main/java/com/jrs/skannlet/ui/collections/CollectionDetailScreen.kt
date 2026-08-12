@@ -18,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -39,18 +40,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.jrs.skannlet.R
 import com.jrs.skannlet.app.CollectionDetailUiState
-import com.jrs.skannlet.app.CollectionPrintDocument
-import com.jrs.skannlet.app.CollectionPrintRow
 import com.jrs.skannlet.app.CollectionsUiState
 import com.jrs.skannlet.app.ScanRowUiState
-import com.jrs.skannlet.app.collectionPrintAttributes
-import com.jrs.skannlet.app.collectionPrintHtml
+import com.jrs.skannlet.data.export.CollectionPrintDocument
+import com.jrs.skannlet.data.export.CollectionPrintRow
+import com.jrs.skannlet.data.export.collectionPrintAttributes
+import com.jrs.skannlet.data.export.collectionPrintHtml
 import com.jrs.skannlet.ui.components.NameInputDialog
 import com.jrs.skannlet.ui.components.QuantityControls
 import com.jrs.skannlet.util.formatDateTime
@@ -59,6 +62,7 @@ import com.jrs.skannlet.util.formatDateTime
 fun CollectionDetailRoute(
     uiState: CollectionsUiState,
     activeUserName: String?,
+    printingLabelRowId: String?,
     onBack: () -> Unit,
     onSetActiveCollection: (String) -> Unit,
     onRenameCollection: (String, String) -> Unit,
@@ -67,6 +71,7 @@ fun CollectionDetailRoute(
     onUpdateQuantity: (String, Int) -> Unit,
     onDeleteScanRow: (String) -> Unit,
     onExportCollection: (String, CollectionPrintDocument, String) -> Unit,
+    onPrintLabel: (String) -> Unit,
     onScanCollection: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -82,6 +87,7 @@ fun CollectionDetailRoute(
 
     CollectionDetailScreen(
         detail = detail,
+        printingLabelRowId = printingLabelRowId,
         onBack = onBack,
         onSetActive = { onSetActiveCollection(detail.id) },
         onRename = { showRenameDialog = true },
@@ -96,7 +102,8 @@ fun CollectionDetailRoute(
                 detail.printFileName(),
             )
         },
-        onPrint = { printCollection(context, detail, activeUserName) },
+        onPrintCollection = { printCollection(context, detail, activeUserName) },
+        onPrintLabel = onPrintLabel,
         onScanCollection = { onScanCollection(detail.id) },
         modifier = modifier,
     )
@@ -148,6 +155,7 @@ fun CollectionDetailRoute(
 @Composable
 fun CollectionDetailScreen(
     detail: CollectionDetailUiState,
+    printingLabelRowId: String?,
     onBack: () -> Unit,
     onSetActive: () -> Unit,
     onRename: () -> Unit,
@@ -156,7 +164,8 @@ fun CollectionDetailScreen(
     onQuantityChange: (String, Int) -> Unit,
     onDeleteRow: (String) -> Unit,
     onExport: () -> Unit,
-    onPrint: () -> Unit,
+    onPrintCollection: () -> Unit,
+    onPrintLabel: (String) -> Unit,
     onScanCollection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -214,7 +223,7 @@ fun CollectionDetailScreen(
                         contentDescription = "Eksporter CSV",
                     )
                 }
-                Button(onClick = onPrint) {
+                Button(onClick = onPrintCollection) {
                     Icon(
                         painter = painterResource(R.drawable.print_24px),
                         contentDescription = "Skriv ut",
@@ -254,8 +263,11 @@ fun CollectionDetailScreen(
                         ScanRowItem(
                             row = row,
                             isCollectionLocked = detail.isLocked,
+                            isPrintingLabel = printingLabelRowId == row.id,
+                            isPrintLabelEnabled = printingLabelRowId == null,
                             onQuantityChange = { quantity -> onQuantityChange(row.id, quantity) },
                             onDelete = { onDeleteRow(row.id) },
+                            onPrintLabel = { onPrintLabel(row.id) },
                         )
                     }
                 }
@@ -486,8 +498,11 @@ private fun EmptyRows(
 private fun ScanRowItem(
     row: ScanRowUiState,
     isCollectionLocked: Boolean,
+    isPrintingLabel: Boolean,
+    isPrintLabelEnabled: Boolean,
     onQuantityChange: (Int) -> Unit,
     onDelete: () -> Unit,
+    onPrintLabel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     ElevatedCard(modifier = modifier.fillMaxWidth()) {
@@ -506,7 +521,10 @@ private fun ScanRowItem(
                     modifier = Modifier.weight(1f),
                 )
                 if (!isCollectionLocked) {
-                    IconButton(onClick = onDelete) {
+                    IconButton(
+                        enabled = !isPrintingLabel,
+                        onClick = onDelete,
+                    ) {
                         Icon(
                             painter = painterResource(R.drawable.delete_24px),
                             contentDescription = "Slett",
@@ -515,15 +533,47 @@ private fun ScanRowItem(
                 }
             }
             Text("Strekkode: ${row.barcode}", style = MaterialTheme.typography.bodyMedium)
-            if (isCollectionLocked) {
-                Text("Antall: ${row.quantity}", style = MaterialTheme.typography.bodyMedium)
-            } else if (row.quantityLocked) {
-                Text("Antall låst: 1", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                QuantityControls(
-                    quantity = row.quantity,
-                    onQuantityChange = onQuantityChange,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    if (isCollectionLocked) {
+                        Text("Antall: ${row.quantity}", style = MaterialTheme.typography.bodyMedium)
+                    } else if (row.quantityLocked) {
+                        Text("Antall låst: 1", style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        QuantityControls(
+                            quantity = row.quantity,
+                            onQuantityChange = onQuantityChange,
+                            enabled = !isPrintingLabel,
+                        )
+                    }
+                }
+                IconButton(
+                    enabled = isPrintLabelEnabled,
+                    onClick = onPrintLabel,
+                    modifier = Modifier.semantics {
+                        contentDescription = if (isPrintingLabel) {
+                            "Skriver ut etikett for ${row.barcode}"
+                        } else {
+                            "Skriv ut etikett for ${row.barcode}"
+                        }
+                    },
+                ) {
+                    if (isPrintingLabel) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(R.drawable.print_24px),
+                            contentDescription = null,
+                        )
+                    }
+                }
             }
         }
     }
@@ -560,6 +610,7 @@ private fun CollectionDetailScreenPreview() {
                 ),
             ),
         ),
+        printingLabelRowId = "r2",
         onBack = {},
         onSetActive = {},
         onRename = {},
@@ -568,7 +619,8 @@ private fun CollectionDetailScreenPreview() {
         onQuantityChange = { _, _ -> },
         onDeleteRow = {},
         onExport = {},
-        onPrint = {},
+        onPrintCollection = {},
+        onPrintLabel = {},
         onScanCollection = {},
     )
 }

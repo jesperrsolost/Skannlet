@@ -1,6 +1,8 @@
 package com.jrs.skannlet.app
 
 import android.net.Uri
+import com.jrs.skannlet.data.export.CollectionPrintDocument
+import com.jrs.skannlet.printer.LabelPrinterSettings
 
 data class AppUiState(
     val isLoading: Boolean = true,
@@ -9,6 +11,13 @@ data class AppUiState(
     val collections: CollectionsUiState = CollectionsUiState(),
     val scan: ScanUiState = ScanUiState(),
     val profile: ProfileUiState = ProfileUiState(),
+    val labelPrinter: LabelPrinterUiState = LabelPrinterUiState(),
+)
+
+data class LabelPrinterUiState(
+    val settings: LabelPrinterSettings = LabelPrinterSettings(),
+    val isTesting: Boolean = false,
+    val printingRowId: String? = null,
 )
 
 data class CollectionsUiState(
@@ -70,6 +79,8 @@ data class UserUiState(
 )
 
 sealed interface AppEffect {
+    data class ShowSnackbar(val message: String) : AppEffect
+
     data class ShareCollectionExport(
         val csvUri: Uri,
         val csvFileName: String,
@@ -77,16 +88,3 @@ sealed interface AppEffect {
         val printFileName: String,
     ) : AppEffect
 }
-
-data class CollectionPrintDocument(
-    val title: String,
-    val metaText: String,
-    val rows: List<CollectionPrintRow>,
-)
-
-data class CollectionPrintRow(
-    val quantity: String,
-    val barcode: String,
-    val productName: String,
-    val createdAt: String,
-)

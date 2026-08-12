@@ -39,6 +39,7 @@ fun QuantityControls(
     quantity: Int,
     onQuantityChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     var showQuantityDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -49,7 +50,7 @@ fun QuantityControls(
     ) {
         Text("Antall", style = MaterialTheme.typography.bodyMedium)
         OutlinedButton(
-            enabled = quantity > 1,
+            enabled = enabled && quantity > 1,
             onClick = { onQuantityChange(quantity - 1) },
         ) {
             Icon(
@@ -58,6 +59,7 @@ fun QuantityControls(
             )
         }
         TextButton(
+            enabled = enabled,
             onClick = { showQuantityDialog = true },
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             modifier = Modifier.widthIn(min = 48.dp),
@@ -65,7 +67,7 @@ fun QuantityControls(
             Text(quantity.toString(), style = MaterialTheme.typography.titleMedium)
         }
         OutlinedButton(
-            enabled = quantity < Int.MAX_VALUE,
+            enabled = enabled && quantity < Int.MAX_VALUE,
             onClick = { onQuantityChange(quantity + 1) },
         ) {
             Icon(

@@ -4,6 +4,22 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+val releaseKeystoreFile = providers.environmentVariable("SKANNLET_KEYSTORE_FILE").orNull
+val releaseKeystorePassword = providers.environmentVariable("SKANNLET_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("SKANNLET_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("SKANNLET_KEY_PASSWORD").orNull
+val releaseSigningValues = listOf(
+    releaseKeystoreFile,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+)
+val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+
+check(releaseSigningValues.all { it.isNullOrBlank() } || hasReleaseSigning) {
+    "Release signing requires all SKANNLET_KEYSTORE_* and SKANNLET_KEY_* variables."
+}
+
 android {
     namespace = "com.jrs.skannlet"
     compileSdk {
@@ -16,14 +32,26 @@ android {
         applicationId = "com.jrs.skannlet"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.1.0"
+    }
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseKeystoreFile))
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             optimization {
                 enable = false
             }
@@ -56,10 +84,5 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(libs.androidx.junit)
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

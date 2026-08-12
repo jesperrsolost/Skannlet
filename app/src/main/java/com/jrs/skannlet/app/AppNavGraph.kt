@@ -84,12 +84,18 @@ fun AppNavGraph(
         composable(AppRoutes.Profile) {
             ProfileRoute(
                 uiState = uiState.profile,
+                labelPrinterState = uiState.labelPrinter,
                 onAddUser = viewModel::addUser,
                 onDeleteUser = viewModel::deleteUser,
                 onSetActiveUser = viewModel::setActiveUser,
                 onSetNextProjectNumber = viewModel::setNextCollectionProjectNumber,
                 onImportProducts = viewModel::importProducts,
                 onDeleteProducts = viewModel::deleteProducts,
+                onSavePrinterEndpoint = viewModel::savePrinterEndpoint,
+                onTestPrinterConnection = viewModel::testPrinterConnection,
+                onSelectLabelFormat = viewModel::selectLabelFormat,
+                onSaveLabelFormat = viewModel::saveLabelFormat,
+                onDeleteLabelFormat = viewModel::deleteLabelFormat,
             )
         }
         composable(
@@ -110,6 +116,8 @@ fun AppNavGraph(
                 onDeleteCollection = viewModel::deleteCollection,
                 onUpdateQuantity = viewModel::updateQuantity,
                 onDeleteScanRow = viewModel::deleteScanRow,
+                printingLabelRowId = uiState.labelPrinter.printingRowId,
+                onPrintLabel = viewModel::printLabel,
                 onExportCollection = viewModel::exportCollection,
                 onScanCollection = { collectionId ->
                     viewModel.setActiveCollection(collectionId)
