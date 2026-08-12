@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project uses Semantic Versioning.
 
+## [1.1.1] - 2026-08-12
+
+### Added
+
+- Return projects with visible return markers and return-specific document titles.
+- Stored creator attribution for new projects, shown in project details and generated documents.
+- Undo actions for deleted projects and scan rows.
+- Unit tests for legacy project serialization, return-project documents, creator attribution, and CSV character encodings.
+
+### Changed
+
+- Replaced WebView-based project printing with native A4 PDF rendering shared by printing and export.
+- Simplified the PDF quantity columns and improved the layout for A4 documents.
+- Made scan-row quantity controls more compact.
+- Updated the launcher artwork, adaptive icon spacing, and themed icon.
+
+### Fixed
+
+- Preserve Norwegian characters when importing UTF-8, UTF-8 BOM, and Windows-1252 product lists.
+- Preserve deleted projects and scan rows accurately when an undo action is used.
+
 ## [1.1.0] - 2026-08-12
 
 ### Added
@@ -51,6 +72,7 @@ The format is based on Keep a Changelog, and this project uses Semantic Versioni
 
 - Initial release.
 
+[1.1.1]: https://github.com/jesperrsolost/Skannlet/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/jesperrsolost/Skannlet/compare/v1.0...v1.1.0
 [1.0.1]: https://github.com/jesperrsolost/Skannlet/commit/05e9337
 [1.0.0]: https://github.com/jesperrsolost/Skannlet/releases/tag/v1.0

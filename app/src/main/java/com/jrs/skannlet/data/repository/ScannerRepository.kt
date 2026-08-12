@@ -35,20 +35,35 @@ data class RepositoryResult<T>(
     val message: String? = null,
 )
 
+data class DeletedScanRow(
+    val row: ScanRow,
+    val rowIndex: Int,
+)
+
+data class DeletedCollection(
+    val collection: ScanCollection,
+    val collectionIndex: Int,
+    val rows: List<DeletedScanRow>,
+    val activeCollectionIdBeforeDeletion: String?,
+    val activeCollectionIdAfterDeletion: String?,
+)
+
 interface ScannerRepositoryContract {
     suspend fun loadSnapshot(): RepositoryResult<AppSnapshot>
     suspend fun addUser(name: String): RepositoryResult<Unit>
     suspend fun setActiveUser(userId: String): RepositoryResult<Unit>
     suspend fun deleteUser(userId: String): RepositoryResult<Unit>
-    suspend fun createCollection(name: String): RepositoryResult<String?>
+    suspend fun createCollection(name: String, isReturn: Boolean): RepositoryResult<String?>
     suspend fun setNextCollectionProjectNumber(projectNumber: Int): RepositoryResult<Unit>
     suspend fun setActiveCollection(collectionId: String): RepositoryResult<Unit>
     suspend fun renameCollection(collectionId: String, name: String): RepositoryResult<Unit>
     suspend fun unlockCollection(collectionId: String): RepositoryResult<Unit>
-    suspend fun deleteCollection(collectionId: String): RepositoryResult<Unit>
+    suspend fun deleteCollection(collectionId: String): RepositoryResult<DeletedCollection?>
+    suspend fun restoreCollection(deleted: DeletedCollection): RepositoryResult<Unit>
     suspend fun scanBarcode(rawBarcode: String): RepositoryResult<Unit>
     suspend fun updateQuantity(rowId: String, quantity: Int): RepositoryResult<Unit>
-    suspend fun deleteScanRow(rowId: String): RepositoryResult<Unit>
+    suspend fun deleteScanRow(rowId: String): RepositoryResult<DeletedScanRow?>
+    suspend fun restoreScanRow(deleted: DeletedScanRow): RepositoryResult<Unit>
     suspend fun exportCollection(collectionId: String): RepositoryResult<ExportedCsv?>
     suspend fun importProducts(uri: Uri): RepositoryResult<Unit>
     suspend fun deleteProducts(): RepositoryResult<Unit>
@@ -102,11 +117,17 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
         RepositoryResult(Unit, "Bruker ${user.name} er slettet.")
     }
 
-    override suspend fun createCollection(name: String): RepositoryResult<String?> = mutex.withLock {
+    override suspend fun createCollection(
+        name: String,
+        isReturn: Boolean,
+    ): RepositoryResult<String?> = mutex.withLock {
         val normalizedName = name.trim()
         if (normalizedName.isBlank()) return@withLock RepositoryResult(null, "Skriv inn navn på samling.")
 
         val read = readAllWithProjectNumbers()
+        val creator = read.data.users.firstOrNull { user ->
+            user.id == read.data.appState.activeUserId
+        } ?: return@withLock RepositoryResult(null, "Velg bruker før du oppretter et prosjekt.")
         val now = System.currentTimeMillis()
         val projectNumber = read.data.appState.nextCollectionProjectNumber.coerceAtLeast(1)
         val collection = ScanCollection(
@@ -115,6 +136,8 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
             name = normalizedName,
             createdAt = now,
             updatedAt = now,
+            creatorName = creator.name,
+            isReturn = isReturn,
         )
         storage.saveCollections(read.data.collections + collection)
         storage.saveAppState(
@@ -193,20 +216,64 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
         RepositoryResult(Unit, "Prosjektet er låst opp.")
     }
 
-    override suspend fun deleteCollection(collectionId: String): RepositoryResult<Unit> = mutex.withLock {
+    override suspend fun deleteCollection(collectionId: String): RepositoryResult<DeletedCollection?> = mutex.withLock {
         val read = storage.readAll()
-        val collection = read.data.collections.firstOrNull { it.id == collectionId }
-            ?: return@withLock RepositoryResult(Unit, "Samlingen finnes ikke.")
+        val collectionIndex = read.data.collections.indexOfFirst { it.id == collectionId }
+        if (collectionIndex < 0) return@withLock RepositoryResult(null, "Samlingen finnes ikke.")
+        val collection = read.data.collections[collectionIndex]
         val updatedCollections = read.data.collections.filterNot { it.id == collectionId }
         val updatedRows = read.data.rows.filterNot { it.collectionId == collectionId }
         val nextActive = when {
             read.data.appState.activeCollectionId != collectionId -> read.data.appState.activeCollectionId
-            else -> updatedCollections.firstOrNull()?.id
+            else -> updatedCollections.firstOrNull { !it.isLocked }?.id
         }
         storage.saveCollections(updatedCollections)
         storage.saveRows(updatedRows)
         storage.saveAppState(read.data.appState.copy(activeCollectionId = nextActive))
-        RepositoryResult(Unit, "Samlingen ${collection.name} er slettet.")
+        RepositoryResult(
+            value = DeletedCollection(
+                collection = collection,
+                collectionIndex = collectionIndex,
+                rows = read.data.rows.mapIndexedNotNull { index, row ->
+                    row.takeIf { it.collectionId == collectionId }?.let {
+                        DeletedScanRow(row = it, rowIndex = index)
+                    }
+                },
+                activeCollectionIdBeforeDeletion = read.data.appState.activeCollectionId,
+                activeCollectionIdAfterDeletion = nextActive,
+            ),
+            message = "Samlingen ${collection.name} er slettet.",
+        )
+    }
+
+    override suspend fun restoreCollection(deleted: DeletedCollection): RepositoryResult<Unit> = mutex.withLock {
+        val read = storage.readAll()
+        if (read.data.collections.any { it.id == deleted.collection.id }) {
+            return@withLock RepositoryResult(Unit, "Samlingen finnes allerede.")
+        }
+
+        storage.saveCollections(
+            read.data.collections.insertAt(deleted.collectionIndex, deleted.collection),
+        )
+        var restoredRows = read.data.rows
+        deleted.rows.sortedBy { it.rowIndex }.forEach { deletedRow ->
+            if (restoredRows.none { it.id == deletedRow.row.id }) {
+                restoredRows = restoredRows.insertAt(deletedRow.rowIndex, deletedRow.row)
+            }
+        }
+        storage.saveRows(restoredRows)
+
+        val currentActive = read.data.appState.activeCollectionId
+        val restoredActive = if (
+            deleted.activeCollectionIdBeforeDeletion == deleted.collection.id &&
+            currentActive == deleted.activeCollectionIdAfterDeletion
+        ) {
+            deleted.collection.id
+        } else {
+            currentActive
+        }
+        storage.saveAppState(read.data.appState.copy(activeCollectionId = restoredActive))
+        RepositoryResult(Unit, "Slettingen ble angret.")
     }
 
     override suspend fun scanBarcode(rawBarcode: String): RepositoryResult<Unit> = mutex.withLock {
@@ -307,13 +374,14 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
         RepositoryResult(Unit)
     }
 
-    override suspend fun deleteScanRow(rowId: String): RepositoryResult<Unit> = mutex.withLock {
+    override suspend fun deleteScanRow(rowId: String): RepositoryResult<DeletedScanRow?> = mutex.withLock {
         val read = storage.readAll()
-        val row = read.data.rows.firstOrNull { it.id == rowId }
-            ?: return@withLock RepositoryResult(Unit, "Raden finnes ikke.")
+        val rowIndex = read.data.rows.indexOfFirst { it.id == rowId }
+        if (rowIndex < 0) return@withLock RepositoryResult(null, "Raden finnes ikke.")
+        val row = read.data.rows[rowIndex]
         val collection = read.data.collections.firstOrNull { it.id == row.collectionId }
         if (collection?.isLocked == true) {
-            return@withLock RepositoryResult(Unit, "Prosjektet er låst. Lås det opp før endring.")
+            return@withLock RepositoryResult(null, "Prosjektet er låst. Lås det opp før endring.")
         }
         val now = System.currentTimeMillis()
 
@@ -323,7 +391,26 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
                 if (collection.id == row.collectionId) collection.copy(updatedAt = now) else collection
             },
         )
-        RepositoryResult(Unit, "Raden er slettet.")
+        RepositoryResult(DeletedScanRow(row = row, rowIndex = rowIndex), "Raden er slettet.")
+    }
+
+    override suspend fun restoreScanRow(deleted: DeletedScanRow): RepositoryResult<Unit> = mutex.withLock {
+        val read = storage.readAll()
+        if (read.data.rows.any { it.id == deleted.row.id }) {
+            return@withLock RepositoryResult(Unit, "Raden finnes allerede.")
+        }
+        if (read.data.collections.none { it.id == deleted.row.collectionId }) {
+            return@withLock RepositoryResult(Unit, "Prosjektet finnes ikke lenger.")
+        }
+
+        storage.saveRows(read.data.rows.insertAt(deleted.rowIndex, deleted.row))
+        val now = System.currentTimeMillis()
+        storage.saveCollections(
+            read.data.collections.map { collection ->
+                if (collection.id == deleted.row.collectionId) collection.copy(updatedAt = now) else collection
+            },
+        )
+        RepositoryResult(Unit, "Slettingen ble angret.")
     }
 
     override suspend fun exportCollection(collectionId: String): RepositoryResult<ExportedCsv?> = mutex.withLock {
@@ -365,11 +452,10 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
     override suspend fun importProducts(uri: Uri): RepositoryResult<Unit> = mutex.withLock {
         try {
             val importResult = withContext(Dispatchers.IO) {
-                val csvText = appContext.contentResolver.openInputStream(uri)
-                    ?.bufferedReader(Charsets.UTF_8)
-                    ?.use { it.readText() }
+                val csvBytes = appContext.contentResolver.openInputStream(uri)
+                    ?.use { it.readBytes() }
                     ?: throw ProductCsvImportException("Produktlisten kunne ikke åpnes.")
-                ProductCsvImporter.parse(csvText)
+                ProductCsvImporter.parse(csvBytes)
             }
             val read = storage.readAll()
             val productsByBarcode = importResult.products.associateBy { it.barcode }
@@ -532,6 +618,9 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
 
     private fun collectionsNextProjectNumber(collections: List<ScanCollection>): Int =
         collections.maxOfOrNull { it.projectNumber + 1 } ?: 1
+
+    private fun <T> List<T>.insertAt(index: Int, value: T): List<T> =
+        toMutableList().apply { add(index.coerceIn(0, size), value) }
 
     private fun newId(): String = UUID.randomUUID().toString()
 

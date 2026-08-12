@@ -5,11 +5,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,18 +42,23 @@ fun QuantityControls(
     onQuantityChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    compact: Boolean = false,
 ) {
     var showQuantityDialog by rememberSaveable { mutableStateOf(false) }
+    val buttonModifier = if (compact) Modifier.size(40.dp) else Modifier
+    val buttonContentPadding = if (compact) PaddingValues(0.dp) else ButtonDefaults.ContentPadding
 
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp),
     ) {
         Text("Antall", style = MaterialTheme.typography.bodyMedium)
         OutlinedButton(
             enabled = enabled && quantity > 1,
             onClick = { onQuantityChange(quantity - 1) },
+            modifier = buttonModifier,
+            contentPadding = buttonContentPadding,
         ) {
             Icon(
                 painter = painterResource(R.drawable.remove_24px),
@@ -69,6 +76,8 @@ fun QuantityControls(
         OutlinedButton(
             enabled = enabled && quantity < Int.MAX_VALUE,
             onClick = { onQuantityChange(quantity + 1) },
+            modifier = buttonModifier,
+            contentPadding = buttonContentPadding,
         ) {
             Icon(
                 painter = painterResource(R.drawable.add_24px),

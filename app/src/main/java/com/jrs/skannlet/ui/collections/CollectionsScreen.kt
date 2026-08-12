@@ -1,6 +1,7 @@
 package com.jrs.skannlet.ui.collections
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -32,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.jrs.skannlet.R
@@ -39,7 +42,6 @@ import com.jrs.skannlet.app.CollectionListItemUiState
 import com.jrs.skannlet.app.CollectionsUiState
 import com.jrs.skannlet.app.UserUiState
 import com.jrs.skannlet.ui.components.AppHeader
-import com.jrs.skannlet.ui.components.NameInputDialog
 import com.jrs.skannlet.ui.components.UserPickerDialog
 import com.jrs.skannlet.util.formatDateTime
 
@@ -48,7 +50,7 @@ fun CollectionsRoute(
     uiState: CollectionsUiState,
     activeUserName: String?,
     users: List<UserUiState>,
-    onCreateCollection: (String) -> Unit,
+    onCreateCollection: (String, Boolean) -> Unit,
     onOpenCollection: (String) -> Unit,
     onSetActiveCollection: (String) -> Unit,
     onUnlockCollection: (String) -> Unit,
@@ -74,13 +76,10 @@ fun CollectionsRoute(
     )
 
     if (showCreateDialog) {
-        NameInputDialog(
-            title = "Nytt prosjekt",
-            label = "Navn på prosjekt",
-            confirmText = "Opprett",
-            onConfirm = { name ->
+        CreateCollectionDialog(
+            onConfirm = { name, isReturn ->
                 showCreateDialog = false
-                onCreateCollection(name)
+                onCreateCollection(name, isReturn)
             },
             onDismiss = { showCreateDialog = false },
         )
@@ -128,6 +127,60 @@ fun CollectionsRoute(
             },
         )
     }
+}
+
+@Composable
+private fun CreateCollectionDialog(
+    onConfirm: (String, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var isReturn by rememberSaveable { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nytt prosjekt") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Navn på prosjekt") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = isReturn,
+                            role = Role.Checkbox,
+                            onValueChange = { isReturn = it },
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = isReturn,
+                        onCheckedChange = null,
+                    )
+                    Text("Merk som retur")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = name.trim().isNotEmpty(),
+                onClick = { onConfirm(name.trim(), isReturn) },
+            ) {
+                Text("Opprett")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Avbryt")
+            }
+        },
+    )
 }
 
 @Composable
@@ -322,10 +375,17 @@ private fun CollectionListItem(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text(
-                        text = item.name,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (item.isReturn) ReturnTag()
+                        Text(
+                            text = item.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                     Text(
                         text = "${item.scanCount} skanninger",
                         style = MaterialTheme.typography.bodyMedium,
@@ -424,6 +484,7 @@ private fun CollectionsScreenPreview() {
                     id = "1",
                     projectNumber = 1,
                     name = "Varetelling juni",
+                    isReturn = true,
                     scanCount = 3,
                     updatedAt = System.currentTimeMillis(),
                     isActive = true,

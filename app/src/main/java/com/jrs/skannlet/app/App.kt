@@ -6,8 +6,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +46,23 @@ fun OmfScannerApp(
     LaunchedEffect(context) {
         viewModel.effects.collect { effect ->
             when (effect) {
-                is AppEffect.ShowSnackbar -> snackbarHostState.showSnackbar(effect.message)
+                is AppEffect.ShowSnackbar -> {
+                    val result = snackbarHostState.showSnackbar(
+                        message = effect.message,
+                        actionLabel = effect.actionLabel,
+                        duration = if (effect.actionLabel != null) {
+                            SnackbarDuration.Long
+                        } else {
+                            SnackbarDuration.Short
+                        },
+                    )
+                    effect.actionId?.let { actionId ->
+                        viewModel.resolveSnackbarAction(
+                            actionId = actionId,
+                            actionPerformed = result == SnackbarResult.ActionPerformed,
+                        )
+                    }
+                }
                 is AppEffect.ShareCollectionExport -> shareCollectionExport(
                     context = context,
                     csvUri = effect.csvUri,

@@ -17,6 +17,8 @@ data class ScanCollection(
     val createdAt: Long,
     val updatedAt: Long,
     val isLocked: Boolean = false,
+    val creatorName: String? = null,
+    val isReturn: Boolean = false,
 )
 
 @Serializable

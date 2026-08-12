@@ -108,7 +108,6 @@ fun AppNavGraph(
             }
             CollectionDetailRoute(
                 uiState = uiState.collections,
-                activeUserName = uiState.profile.activeUserName,
                 onBack = { navController.popBackStack() },
                 onSetActiveCollection = viewModel::setActiveCollection,
                 onRenameCollection = viewModel::renameCollection,

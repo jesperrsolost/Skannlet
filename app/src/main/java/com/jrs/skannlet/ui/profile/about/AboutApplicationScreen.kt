@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.jrs.skannlet.R
 import com.jrs.skannlet.ui.profile.components.ProfileSubpageHeader
 
-private const val APP_VERSION = "1.1.0"
+private const val APP_VERSION = "1.1.1"
 private const val APP_LICENSE = "Apache 2.0"
 private const val SOURCE_CODE_TEXT = "kildekode"
 internal const val SOURCE_CODE_URL = "https://github.com/jesperrsolost/Skannlet"

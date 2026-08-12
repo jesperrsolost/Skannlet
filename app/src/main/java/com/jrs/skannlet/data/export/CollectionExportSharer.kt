@@ -3,11 +3,9 @@ package com.jrs.skannlet.data.export
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.core.content.FileProvider
-import com.jrs.skannlet.R
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -64,16 +62,12 @@ private suspend fun createPdfFromDocument(
     val appContext = context.applicationContext
     val exportDir = File(appContext.cacheDir, "exports").apply { mkdirs() }
     val pdfFile = File(exportDir, fileName)
-    val logo = BitmapFactory.decodeResource(appContext.resources, R.drawable.omflogo)
 
-    try {
-        writeCollectionPdf(
+    pdfFile.outputStream().use { outputStream ->
+        CollectionPdfRenderer(appContext).write(
             document = document,
-            logo = logo,
-            pdfFile = pdfFile,
+            outputStream = outputStream,
         )
-    } finally {
-        logo?.recycle()
     }
 
     FileProvider.getUriForFile(

@@ -1,47 +1,67 @@
 package com.jrs.skannlet.data.export
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
-import java.io.File
-import java.io.FileOutputStream
+import com.jrs.skannlet.R
+import java.io.OutputStream
+import java.util.concurrent.CancellationException
 
-internal fun writeCollectionPdf(
-    document: CollectionPrintDocument,
-    logo: Bitmap?,
-    pdfFile: File,
-) {
-    val pdfDocument = PdfDocument()
-    try {
-        var pageNumber = 1
-        var page = pdfDocument.startCollectionPage(pageNumber)
-        var canvas = page.canvas
-        var y = drawDocumentHeader(canvas, document, logo)
-        y = drawTableHeader(canvas, y)
+internal class CollectionPdfRenderer(context: Context) {
+    private val resources = context.applicationContext.resources
 
-        document.rows.forEach { row ->
-            val rowHeight = row.heightForPdf()
-            if (y + rowHeight > PDF_PAGE_HEIGHT - PAGE_MARGIN) {
-                pdfDocument.finishPage(page)
-                pageNumber++
-                page = pdfDocument.startCollectionPage(pageNumber)
-                canvas = page.canvas
-                y = drawTableHeader(canvas, PAGE_MARGIN)
+    fun write(
+        document: CollectionPrintDocument,
+        outputStream: OutputStream,
+        isCancelled: () -> Boolean = { false },
+    ) {
+        val logo = BitmapFactory.decodeResource(resources, R.drawable.omflogo)
+        val pdfDocument = PdfDocument()
+        var unfinishedPage: PdfDocument.Page? = null
+        try {
+            ensureNotCancelled(isCancelled)
+            var pageNumber = 1
+            var page = pdfDocument.startCollectionPage(pageNumber).also { unfinishedPage = it }
+            var canvas = page.canvas
+            var y = drawDocumentHeader(canvas, document, logo)
+            y = drawTableHeader(canvas, y)
+
+            document.rows.forEach { row ->
+                ensureNotCancelled(isCancelled)
+                val rowHeight = row.heightForPdf()
+                if (y + rowHeight > PDF_PAGE_HEIGHT - PAGE_MARGIN) {
+                    pdfDocument.finishPage(page)
+                    unfinishedPage = null
+                    pageNumber++
+                    page = pdfDocument.startCollectionPage(pageNumber).also { unfinishedPage = it }
+                    canvas = page.canvas
+                    y = drawTableHeader(canvas, PAGE_MARGIN)
+                }
+                drawRow(canvas, row, y, rowHeight)
+                y += rowHeight
             }
-            drawRow(canvas, row, y, rowHeight)
-            y += rowHeight
-        }
-        pdfDocument.finishPage(page)
+            pdfDocument.finishPage(page)
+            unfinishedPage = null
 
-        FileOutputStream(pdfFile).use { outputStream ->
+            ensureNotCancelled(isCancelled)
             pdfDocument.writeTo(outputStream)
+        } finally {
+            unfinishedPage?.let { page ->
+                runCatching { pdfDocument.finishPage(page) }
+            }
+            pdfDocument.close()
+            logo?.recycle()
         }
-    } finally {
-        pdfDocument.close()
     }
+}
+
+private fun ensureNotCancelled(isCancelled: () -> Boolean) {
+    if (isCancelled()) throw CancellationException("PDF rendering was cancelled.")
 }
 
 private fun PdfDocument.startCollectionPage(pageNumber: Int): PdfDocument.Page {
@@ -58,12 +78,12 @@ private fun drawDocumentHeader(
 ): Float {
     val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(27, 27, 31)
-        textSize = 24f
+        textSize = TITLE_TEXT_SIZE
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(85, 88, 98)
-        textSize = 13f
+        textSize = META_TEXT_SIZE
     }
 
     val logoPlacement = logo?.let {
@@ -76,7 +96,7 @@ private fun drawDocumentHeader(
     val titleMaxWidth = logoPlacement?.let { (_, bounds) ->
         bounds.left - PAGE_MARGIN - HEADER_TITLE_LOGO_GAP
     } ?: CONTENT_WIDTH
-    val titleBaseline = PAGE_MARGIN + 24f
+    val titleBaseline = PAGE_MARGIN + TITLE_BASELINE_OFFSET
     val titleLines = document.title.wrapForPdf(titlePaint, titleMaxWidth)
 
     titleLines.forEachIndexed { index, line ->
@@ -143,7 +163,7 @@ private fun drawRow(
         strokeWidth = 1f
     }
 
-    drawCellText(canvas, row.quantity, bodyPaint, COL_DELIVERED_LEFT, y, COL_DELIVERED_WIDTH, alignRight = true)
+    drawCellText(canvas, row.quantity, bodyPaint, COL_QUANTITY_LEFT, y, COL_QUANTITY_WIDTH, alignRight = true)
     drawCellText(canvas, row.barcode, bodyPaint, COL_BARCODE_LEFT, y, COL_BARCODE_WIDTH)
     drawCellText(canvas, row.productName, bodyPaint, COL_PRODUCT_LEFT, y, COL_PRODUCT_WIDTH)
     drawCellText(canvas, row.createdAt, bodyPaint, COL_CREATED_LEFT, y, COL_CREATED_WIDTH)
@@ -207,43 +227,40 @@ private data class PdfColumn(
     val alignRight: Boolean = false,
 )
 
-private const val PDF_PAGE_WIDTH = 612
-private const val PDF_PAGE_HEIGHT = 792
+private const val PDF_PAGE_WIDTH = 595
+private const val PDF_PAGE_HEIGHT = 842
 private const val PAGE_MARGIN = 32f
 private const val CONTENT_WIDTH = PDF_PAGE_WIDTH - PAGE_MARGIN * 2
 private const val MAX_LOGO_WIDTH = 180f
 private const val MAX_LOGO_HEIGHT = 48f
-private const val HEADER_TITLE_LOGO_GAP = 24f
-private const val HEADER_TITLE_LINE_HEIGHT = 28f
-private const val HEADER_TITLE_DESCENT = 6f
-private const val HEADER_META_TOP_GAP = 10f
-private const val HEADER_AFTER_META_GAP = 28f
-private const val TABLE_TEXT_SIZE = 16f
-private const val TABLE_HEADER_HEIGHT = 56f
-private const val TABLE_ROW_MIN_HEIGHT = 36f
-private const val ROW_LINE_HEIGHT = 20f
-private const val ROW_TEXT_BASELINE = 16f
-private const val CELL_PADDING = 8f
-private const val COL_ORDERED_WIDTH = 64f
-private const val COL_DELIVERED_WIDTH = 64f
-private const val COL_REST_WIDTH = 48f
+private const val PDF_TEXT_SCALE = 0.8f
+private const val TITLE_TEXT_SIZE = 24f * PDF_TEXT_SCALE
+private const val META_TEXT_SIZE = 13f * PDF_TEXT_SCALE
+private const val TABLE_TEXT_SIZE = 16f * PDF_TEXT_SCALE
+private const val TITLE_BASELINE_OFFSET = 24f * PDF_TEXT_SCALE
+private const val HEADER_TITLE_LOGO_GAP = 24f * PDF_TEXT_SCALE
+private const val HEADER_TITLE_LINE_HEIGHT = 28f * PDF_TEXT_SCALE
+private const val HEADER_TITLE_DESCENT = 6f * PDF_TEXT_SCALE
+private const val HEADER_META_TOP_GAP = 10f * PDF_TEXT_SCALE
+private const val HEADER_AFTER_META_GAP = 28f * PDF_TEXT_SCALE
+private const val TABLE_HEADER_HEIGHT = 56f * PDF_TEXT_SCALE
+private const val TABLE_ROW_MIN_HEIGHT = 36f * PDF_TEXT_SCALE
+private const val ROW_LINE_HEIGHT = 20f * PDF_TEXT_SCALE
+private const val ROW_TEXT_BASELINE = 16f * PDF_TEXT_SCALE
+private const val CELL_PADDING = 8f * PDF_TEXT_SCALE
+private const val COL_QUANTITY_WIDTH = 64f
 private const val COL_BARCODE_WIDTH = 90f
-private const val COL_PRODUCT_WIDTH = 135f
+private const val COL_PRODUCT_WIDTH = 191f
 private const val COL_CREATED_WIDTH = 82f
 private const val COL_COMMENT_WIDTH =
-    CONTENT_WIDTH - COL_ORDERED_WIDTH - COL_DELIVERED_WIDTH - COL_REST_WIDTH -
-        COL_BARCODE_WIDTH - COL_PRODUCT_WIDTH - COL_CREATED_WIDTH
-private const val COL_DELIVERED_LEFT = PAGE_MARGIN
-private const val COL_ORDERED_LEFT = COL_DELIVERED_LEFT + COL_DELIVERED_WIDTH
-private const val COL_REST_LEFT = COL_ORDERED_LEFT + COL_ORDERED_WIDTH
-private const val COL_BARCODE_LEFT = COL_REST_LEFT + COL_REST_WIDTH
+    CONTENT_WIDTH - COL_QUANTITY_WIDTH - COL_BARCODE_WIDTH - COL_PRODUCT_WIDTH - COL_CREATED_WIDTH
+private const val COL_QUANTITY_LEFT = PAGE_MARGIN
+private const val COL_BARCODE_LEFT = COL_QUANTITY_LEFT + COL_QUANTITY_WIDTH
 private const val COL_PRODUCT_LEFT = COL_BARCODE_LEFT + COL_BARCODE_WIDTH
 private const val COL_CREATED_LEFT = COL_PRODUCT_LEFT + COL_PRODUCT_WIDTH
 private const val COL_COMMENT_LEFT = COL_CREATED_LEFT + COL_CREATED_WIDTH
 private val PDF_COLUMNS = listOf(
-    PdfColumn("Ant. levert", COL_DELIVERED_LEFT, COL_DELIVERED_WIDTH, alignRight = true),
-    PdfColumn("Ant. bestilt", COL_ORDERED_LEFT, COL_ORDERED_WIDTH, alignRight = true),
-    PdfColumn("Rest", COL_REST_LEFT, COL_REST_WIDTH, alignRight = true),
+    PdfColumn("Antall", COL_QUANTITY_LEFT, COL_QUANTITY_WIDTH, alignRight = true),
     PdfColumn("Strekkode", COL_BARCODE_LEFT, COL_BARCODE_WIDTH),
     PdfColumn("Produkt", COL_PRODUCT_LEFT, COL_PRODUCT_WIDTH),
     PdfColumn("Opprettet", COL_CREATED_LEFT, COL_CREATED_WIDTH),

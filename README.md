@@ -8,14 +8,15 @@ Skannlet er en Android-app for lokal registrering av varer med strekkode. Skanni
 
 Appen er utviklet for Ø. M. Fjeld Prosjektservice og lagrer data lokalt på enheten. Den krever ingen brukerkonto, ekstern database eller skytjeneste.
 
-Gjeldende versjon er **1.1.0**. Se [CHANGELOG.md](CHANGELOG.md) for endringshistorikk.
+Gjeldende versjon er **1.1.1**. Se [CHANGELOG.md](CHANGELOG.md) for endringshistorikk.
 
 ## Funksjoner
 
-- Opprett prosjekter med automatisk løpenummer.
+- Opprett utleverings- og returprosjekter med automatisk løpenummer.
 - Skann med Zebra-skanner eller annen tastaturbasert strekkodeleser.
 - Slå opp produktnavn fra en importert CSV-fil.
 - Juster antall og rediger skannede varer før prosjektet låses.
+- Se hvem som opprettet et prosjekt, og angre sletting av prosjekter og varer.
 - Søk i prosjektlisten og bytt mellom lokale brukere.
 - Eksporter prosjektdata som CSV og PDF/følgeseddel.
 - Skriv ut strekkodeetiketter til TSC TC200 over lokalnett.
@@ -38,7 +39,7 @@ Produktnr.;Produkt
 11063006;HS 63A/230V Skap
 ```
 
-Semikolon, komma og tabulator støttes som skilletegn. Når en ny fil importeres, erstatter den den tidligere produktlisten.
+Semikolon, komma og tabulator støttes som skilletegn. Filen kan være kodet som UTF-8, UTF-8 med BOM eller Windows-1252. Når en ny fil importeres, erstatter den den tidligere produktlisten.
 
 ## Etikettskriver
 
@@ -56,7 +57,7 @@ Det innebygde formatet `Small Barcode` er tilpasset etiketter på 35 × 14 mm me
 
 ## Eksport
 
-Eksport oppretter en CSV-fil og forsøker å legge ved en PDF-følgeseddel i Androids delingsdialog. Følgeseddelen inneholder prosjektinformasjon, bruker, varer og tidspunkt.
+Eksport oppretter en CSV-fil og forsøker å legge ved en PDF-følgeseddel i Androids delingsdialog. Følgeseddelen bruker A4-format, merkes som utlevering eller retur og inneholder prosjektinformasjon, oppretter, varer og tidspunkt.
 
 Et prosjekt låses automatisk etter eksport for å hindre utilsiktede endringer. Det kan låses opp igjen fra prosjektdetaljene.
 

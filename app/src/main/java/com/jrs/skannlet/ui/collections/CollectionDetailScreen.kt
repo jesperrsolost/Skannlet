@@ -2,8 +2,6 @@ package com.jrs.skannlet.ui.collections
 
 import android.content.Context
 import android.print.PrintManager
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -52,8 +50,8 @@ import com.jrs.skannlet.app.CollectionsUiState
 import com.jrs.skannlet.app.ScanRowUiState
 import com.jrs.skannlet.data.export.CollectionPrintDocument
 import com.jrs.skannlet.data.export.CollectionPrintRow
+import com.jrs.skannlet.data.export.collectionPrintAdapter
 import com.jrs.skannlet.data.export.collectionPrintAttributes
-import com.jrs.skannlet.data.export.collectionPrintHtml
 import com.jrs.skannlet.ui.components.NameInputDialog
 import com.jrs.skannlet.ui.components.QuantityControls
 import com.jrs.skannlet.util.formatDateTime
@@ -61,7 +59,6 @@ import com.jrs.skannlet.util.formatDateTime
 @Composable
 fun CollectionDetailRoute(
     uiState: CollectionsUiState,
-    activeUserName: String?,
     printingLabelRowId: String?,
     onBack: () -> Unit,
     onSetActiveCollection: (String) -> Unit,
@@ -98,11 +95,11 @@ fun CollectionDetailRoute(
         onExport = {
             onExportCollection(
                 detail.id,
-                detail.toPrintDocument(activeUserName),
+                detail.toPrintDocument(),
                 detail.printFileName(),
             )
         },
-        onPrintCollection = { printCollection(context, detail, activeUserName) },
+        onPrintCollection = { printCollection(context, detail) },
         onPrintLabel = onPrintLabel,
         onScanCollection = { onScanCollection(detail.id) },
         modifier = modifier,
@@ -175,6 +172,7 @@ fun CollectionDetailScreen(
         topBar = {
             CollectionDetailTopAppBar(
                 title = detail.name,
+                isReturn = detail.isReturn,
                 isActive = detail.isActive,
                 isLocked = detail.isLocked,
                 onBack = onBack,
@@ -206,6 +204,10 @@ fun CollectionDetailScreen(
                     )
                     Text(
                         text = "Sist endret: ${formatDateTime(detail.updatedAt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        text = "Opprettet av: ${detail.creatorName?.takeIf { it.isNotBlank() } ?: "Ukjent bruker"}",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -280,6 +282,7 @@ fun CollectionDetailScreen(
 @Composable
 private fun CollectionDetailTopAppBar(
     title: String,
+    isReturn: Boolean = false,
     isActive: Boolean,
     isLocked: Boolean,
     onBack: () -> Unit,
@@ -291,11 +294,18 @@ private fun CollectionDetailTopAppBar(
 
     TopAppBar(
         title = {
-            Text(
-                text = title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isReturn) ReturnTag()
+                Text(
+                    text = title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         },
         navigationIcon = {
             IconButton(onClick = onBack) {
@@ -360,29 +370,14 @@ private fun CollectionDetailTopAppBar(
 private fun printCollection(
     context: Context,
     detail: CollectionDetailUiState,
-    activeUserName: String?,
 ) {
     val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-    val webView = WebView(context)
     val jobName = "Samling_${detail.name}".sanitizePrintJobName()
-
-    webView.webViewClient = object : WebViewClient() {
-        override fun onPageFinished(view: WebView, url: String?) {
-            val adapter = view.createPrintDocumentAdapter(jobName)
-            printManager.print(
-                jobName,
-                adapter,
-                collectionPrintAttributes(),
-            )
-        }
-    }
-    val printDocument = detail.toPrintDocument(activeUserName)
-    webView.loadDataWithBaseURL(
-        null,
-        context.collectionPrintHtml(printDocument),
-        "text/html",
-        "UTF-8",
-        null,
+    val printDocument = detail.toPrintDocument()
+    printManager.print(
+        jobName,
+        collectionPrintAdapter(context, printDocument, jobName),
+        collectionPrintAttributes(),
     )
 }
 
@@ -398,14 +393,16 @@ private fun String.sanitizePrintJobName(): String {
 private fun CollectionDetailUiState.printFileName(): String =
     "${"Samling_$name".sanitizePrintJobName()}.pdf"
 
-private fun CollectionDetailUiState.printTitle(): String =
-    "Følgeseddel #$projectNumber | $name"
+private fun CollectionDetailUiState.printTitle(): String {
+    val documentType = if (isReturn) "Retur" else "Utlevering"
+    return "$documentType #$projectNumber | $name"
+}
 
-private fun CollectionDetailUiState.toPrintDocument(activeUserName: String?): CollectionPrintDocument {
-    val printedBy = activeUserName?.takeIf { it.isNotBlank() } ?: "Ukjent bruker"
+internal fun CollectionDetailUiState.toPrintDocument(): CollectionPrintDocument {
+    val creator = creatorName?.takeIf { it.isNotBlank() } ?: "Ukjent bruker"
     return CollectionPrintDocument(
         title = printTitle(),
-        metaText = "$scanCount skanninger | Sist endret: ${formatDateTime(updatedAt)} | printet av: $printedBy",
+        metaText = "$scanCount skanninger | Sist endret: ${formatDateTime(updatedAt)} | Opprettet av: $creator",
         rows = rows.map { row ->
             CollectionPrintRow(
                 quantity = row.quantity.toString(),
@@ -507,19 +504,27 @@ private fun ScanRowItem(
 ) {
     ElevatedCard(modifier = modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top,
             ) {
-                Text(
-                    text = row.productName,
-                    style = MaterialTheme.typography.titleMedium,
+                Column(
                     modifier = Modifier.weight(1f),
-                )
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                ) {
+                    Text(
+                        text = row.productName,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = "Strekkode: ${row.barcode}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
                 if (!isCollectionLocked) {
                     IconButton(
                         enabled = !isPrintingLabel,
@@ -532,7 +537,6 @@ private fun ScanRowItem(
                     }
                 }
             }
-            Text("Strekkode: ${row.barcode}", style = MaterialTheme.typography.bodyMedium)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -548,6 +552,7 @@ private fun ScanRowItem(
                             quantity = row.quantity,
                             onQuantityChange = onQuantityChange,
                             enabled = !isPrintingLabel,
+                            compact = true,
                         )
                     }
                 }
@@ -587,6 +592,8 @@ private fun CollectionDetailScreenPreview() {
             id = "1",
             projectNumber = 1,
             name = "Varetelling juni",
+            creatorName = "Kari Nordmann",
+            isReturn = true,
             scanCount = 2,
             updatedAt = System.currentTimeMillis(),
             isActive = true,

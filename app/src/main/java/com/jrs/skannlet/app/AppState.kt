@@ -30,6 +30,7 @@ data class CollectionListItemUiState(
     val id: String,
     val projectNumber: Int,
     val name: String,
+    val isReturn: Boolean = false,
     val scanCount: Int,
     val updatedAt: Long,
     val isActive: Boolean,
@@ -40,6 +41,8 @@ data class CollectionDetailUiState(
     val id: String,
     val projectNumber: Int,
     val name: String,
+    val creatorName: String? = null,
+    val isReturn: Boolean = false,
     val scanCount: Int,
     val updatedAt: Long,
     val isActive: Boolean,
@@ -79,7 +82,11 @@ data class UserUiState(
 )
 
 sealed interface AppEffect {
-    data class ShowSnackbar(val message: String) : AppEffect
+    data class ShowSnackbar(
+        val message: String,
+        val actionLabel: String? = null,
+        val actionId: String? = null,
+    ) : AppEffect
 
     data class ShareCollectionExport(
         val csvUri: Uri,

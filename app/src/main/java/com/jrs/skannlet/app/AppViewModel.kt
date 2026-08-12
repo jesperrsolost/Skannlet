@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.jrs.skannlet.data.export.CollectionPrintDocument
 import com.jrs.skannlet.data.repository.AppSnapshot
+import com.jrs.skannlet.data.repository.DeletedCollection
+import com.jrs.skannlet.data.repository.DeletedScanRow
 import com.jrs.skannlet.data.repository.RepositoryResult
 import com.jrs.skannlet.data.repository.ScannerRepository
 import com.jrs.skannlet.data.repository.ScannerRepositoryContract
@@ -16,6 +18,7 @@ import com.jrs.skannlet.printer.LabelPrinterManager
 import com.jrs.skannlet.printer.LabelPrinterManagerContract
 import com.jrs.skannlet.printer.LabelPrinterSettings
 import com.jrs.skannlet.printer.PrinterEndpoint
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -34,6 +37,7 @@ class AppViewModel(
 ) : ViewModel() {
     private var selectedCollectionId: String? = null
     private val actionMutex = Mutex()
+    private val pendingDeletionUndos = mutableMapOf<String, PendingDeletionUndo>()
 
     private val _uiState = MutableStateFlow(
         AppUiState(
@@ -74,8 +78,8 @@ class AppViewModel(
         mutate { repository.deleteUser(userId) }
     }
 
-    fun createCollection(name: String) {
-        mutate { repository.createCollection(name) }
+    fun createCollection(name: String, isReturn: Boolean) {
+        mutate { repository.createCollection(name, isReturn) }
     }
 
     fun setNextCollectionProjectNumber(projectNumber: Int) {
@@ -96,8 +100,23 @@ class AppViewModel(
 
     fun deleteCollection(collectionId: String) {
         launchSerialized {
-            if (selectedCollectionId == collectionId) selectedCollectionId = null
-            runRepositoryCall { repository.deleteCollection(collectionId) }
+            try {
+                val result = repository.deleteCollection(collectionId)
+                val deleted = result.value
+                if (deleted == null) {
+                    refresh(messageOverride = result.message)
+                    return@launchSerialized
+                }
+                if (selectedCollectionId == collectionId) selectedCollectionId = null
+                refresh()
+                offerDeletionUndo(
+                    message = result.message ?: "Samlingen er slettet.",
+                    pendingUndo = PendingDeletionUndo.Collection(deleted),
+                )
+            } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
+                refresh(messageOverride = "Handlingen kunne ikke fullføres.")
+            }
         }
     }
 
@@ -110,7 +129,42 @@ class AppViewModel(
     }
 
     fun deleteScanRow(rowId: String) {
-        mutate { repository.deleteScanRow(rowId) }
+        launchSerialized {
+            try {
+                val result = repository.deleteScanRow(rowId)
+                val deleted = result.value
+                if (deleted == null) {
+                    refresh(messageOverride = result.message)
+                    return@launchSerialized
+                }
+                refresh()
+                offerDeletionUndo(
+                    message = result.message ?: "Raden er slettet.",
+                    pendingUndo = PendingDeletionUndo.Row(deleted),
+                )
+            } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
+                refresh(messageOverride = "Handlingen kunne ikke fullføres.")
+            }
+        }
+    }
+
+    fun resolveSnackbarAction(actionId: String, actionPerformed: Boolean) {
+        launchSerialized {
+            val pendingUndo = pendingDeletionUndos.remove(actionId) ?: return@launchSerialized
+            if (!actionPerformed) return@launchSerialized
+
+            try {
+                val result = when (pendingUndo) {
+                    is PendingDeletionUndo.Collection -> repository.restoreCollection(pendingUndo.deleted)
+                    is PendingDeletionUndo.Row -> repository.restoreScanRow(pendingUndo.deleted)
+                }
+                refresh(messageOverride = result.message ?: "Slettingen ble angret.")
+            } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
+                refresh(messageOverride = "Slettingen kunne ikke angres.")
+            }
+        }
     }
 
     fun exportCollection(
@@ -240,6 +294,21 @@ class AppViewModel(
         updatePrinterSettings { update() to successMessage }
     }
 
+    private suspend fun offerDeletionUndo(
+        message: String,
+        pendingUndo: PendingDeletionUndo,
+    ) {
+        val actionId = UUID.randomUUID().toString()
+        pendingDeletionUndos[actionId] = pendingUndo
+        _effects.send(
+            AppEffect.ShowSnackbar(
+                message = message,
+                actionLabel = "Angre",
+                actionId = actionId,
+            ),
+        )
+    }
+
     private fun updatePrinterSettings(
         update: () -> Pair<LabelPrinterSettings, String>,
     ) {
@@ -308,6 +377,7 @@ class AppViewModel(
                 id = collection.id,
                 projectNumber = collection.projectNumber,
                 name = collection.name,
+                isReturn = collection.isReturn,
                 scanCount = rowsByCollection[collection.id].orEmpty().size,
                 updatedAt = collection.updatedAt,
                 isActive = collection.id == activeCollectionId,
@@ -320,6 +390,8 @@ class AppViewModel(
                     id = collection.id,
                     projectNumber = collection.projectNumber,
                     name = collection.name,
+                    creatorName = collection.creatorName,
+                    isReturn = collection.isReturn,
                     scanCount = rowsByCollection[collection.id].orEmpty().size,
                     updatedAt = collection.updatedAt,
                     isActive = collection.id == activeCollectionId,
@@ -393,6 +465,11 @@ class AppViewModel(
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
+}
+
+private sealed interface PendingDeletionUndo {
+    data class Collection(val deleted: DeletedCollection) : PendingDeletionUndo
+    data class Row(val deleted: DeletedScanRow) : PendingDeletionUndo
 }
 
 private fun Throwable.printerErrorMessage(): String = when (this) {

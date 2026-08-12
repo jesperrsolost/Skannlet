@@ -1,6 +1,10 @@
 package com.jrs.skannlet.data.importer
 
 import com.jrs.skannlet.data.model.Product
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 data class ProductImportResult(
@@ -11,6 +15,8 @@ data class ProductImportResult(
 class ProductCsvImportException(message: String) : Exception(message)
 
 object ProductCsvImporter {
+    fun parse(csvBytes: ByteArray): ProductImportResult = parse(csvBytes.decodeCsvText())
+
     fun parse(csvText: String): ProductImportResult {
         val normalizedText = csvText.removePrefix("\uFEFF")
         val delimiter = detectDelimiter(normalizedText)
@@ -135,3 +141,26 @@ object ProductCsvImporter {
     private val BARCODE_HEADERS = setOf("produktnr.", "produktnr")
     private val PRODUCT_HEADERS = setOf("produkt")
 }
+
+private fun ByteArray.decodeCsvText(): String {
+    val utf8Bytes = if (startsWithUtf8Bom()) copyOfRange(UTF8_BOM_SIZE, size) else this
+    return try {
+        StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(utf8Bytes))
+            .toString()
+    } catch (_: CharacterCodingException) {
+        toString(WINDOWS_1252)
+    }
+}
+
+private fun ByteArray.startsWithUtf8Bom(): Boolean =
+    size >= UTF8_BOM_SIZE &&
+        this[0] == UTF8_BOM[0] &&
+        this[1] == UTF8_BOM[1] &&
+        this[2] == UTF8_BOM[2]
+
+private val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+private const val UTF8_BOM_SIZE = 3
+private val WINDOWS_1252 = java.nio.charset.Charset.forName("windows-1252")
