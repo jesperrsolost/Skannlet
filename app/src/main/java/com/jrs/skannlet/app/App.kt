@@ -14,7 +14,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -25,6 +30,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.jrs.skannlet.data.export.shareCollectionExport
 import com.jrs.skannlet.ui.components.NameInputDialog
+import com.jrs.skannlet.ui.components.UserPickerDialog
 
 @Composable
 fun OmfScannerApp(
@@ -36,6 +42,19 @@ fun OmfScannerApp(
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    var backupContinuesWithUpdate by rememberSaveable { mutableStateOf(false) }
+    val backupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        uri?.let { viewModel.exportAppDataBackup(it, backupContinuesWithUpdate) }
+        backupContinuesWithUpdate = false
+    }
+    val showDockUserPicker = !uiState.isLoading &&
+        !uiState.needsUser &&
+        uiState.profile.users.isNotEmpty() &&
+        uiState.isDockUserSelectionRequired
+
+    ChargingDockObserver(viewModel::onChargingStateChanged)
 
     LaunchedEffect(uiState.message) {
         val message = uiState.message ?: return@LaunchedEffect
@@ -70,6 +89,15 @@ fun OmfScannerApp(
                     printDocument = effect.printDocument,
                     printFileName = effect.printFileName,
                 )
+                is AppEffect.CreateBackupDocument -> {
+                    backupContinuesWithUpdate = effect.continueWithUpdate
+                    backupLauncher.launch(effect.fileName)
+                }
+                is AppEffect.LaunchIntent -> runCatching {
+                    context.startActivity(effect.intent)
+                }.onFailure {
+                    snackbarHostState.showSnackbar("Kunne ikke åpne Android-installasjonen.")
+                }
             }
         }
     }
@@ -122,6 +150,33 @@ fun OmfScannerApp(
             label = "Navn",
             confirmText = "Lagre bruker",
             onConfirm = viewModel::addUser,
+        )
+    } else if (showDockUserPicker) {
+        UserPickerDialog(
+            users = uiState.profile.users,
+            title = "Velg aktiv bruker",
+            allowActiveUserSelection = true,
+            dismissible = false,
+            onSelectUser = viewModel::confirmDockUser,
+            onDismiss = {},
+        )
+    }
+
+    if (
+        !uiState.isLoading &&
+        !uiState.needsUser &&
+        !showDockUserPicker &&
+        uiState.appUpdate.isDialogVisible
+    ) {
+        AppUpdateDialog(
+            state = uiState.appUpdate,
+            onBackupAndUpdate = { viewModel.requestAppDataBackup(continueWithUpdate = true) },
+            onUpdate = viewModel::downloadAvailableUpdate,
+            onInstall = viewModel::installDownloadedUpdate,
+            onLater = viewModel::deferAvailableUpdate,
+            onDismiss = viewModel::dismissUpdateUi,
+            onHideDownload = viewModel::hideUpdateDownload,
+            onCancelDownload = viewModel::cancelUpdateDownload,
         )
     }
 }

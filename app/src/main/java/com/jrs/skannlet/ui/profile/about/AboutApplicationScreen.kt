@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,17 +28,23 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.jrs.skannlet.R
+import com.jrs.skannlet.BuildConfig
+import com.jrs.skannlet.app.AppUpdateStatus
+import com.jrs.skannlet.app.AppUpdateUiState
 import com.jrs.skannlet.ui.profile.components.ProfileSubpageHeader
 
-private const val APP_VERSION = "1.1.1"
 private const val APP_LICENSE = "Apache 2.0"
 private const val SOURCE_CODE_TEXT = "kildekode"
 internal const val SOURCE_CODE_URL = "https://github.com/jesperrsolost/Skannlet"
 
 @Composable
 internal fun AboutApplicationScreen(
+    updateState: AppUpdateUiState,
     onBackClick: () -> Unit,
     onSourceCodeClick: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onExportBackup: () -> Unit,
+    onRestoreBackup: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val appName = stringResource(R.string.app_name)
@@ -67,10 +76,44 @@ internal fun AboutApplicationScreen(
             style = MaterialTheme.typography.headlineMedium,
         )
         Text(
-            text = "Versjon: $APP_VERSION",
+            text = "Versjon: ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        Button(
+            enabled = updateState.status != AppUpdateStatus.Checking,
+            onClick = onCheckForUpdates,
+        ) {
+            if (updateState.status == AppUpdateStatus.Checking) {
+                CircularProgressIndicator(strokeWidth = 2.dp)
+            } else {
+                Text(
+                    if (
+                        updateState.status == AppUpdateStatus.Downloading &&
+                        !updateState.isDialogVisible
+                    ) {
+                        "Vis nedlasting"
+                    } else {
+                        "Se etter oppdateringer"
+                    },
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = onExportBackup,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Eksporter sikkerhetskopi") }
+            OutlinedButton(
+                onClick = onRestoreBackup,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Gjenopprett sikkerhetskopi") }
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,

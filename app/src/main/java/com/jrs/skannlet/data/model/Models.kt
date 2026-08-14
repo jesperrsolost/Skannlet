@@ -2,6 +2,8 @@ package com.jrs.skannlet.data.model
 
 import kotlinx.serialization.Serializable
 
+const val MAX_SCAN_ROW_COMMENT_LENGTH = 200
+
 @Serializable
 data class AppUser(
     val id: String,
@@ -27,9 +29,10 @@ data class ScanRow(
     val collectionId: String,
     val barcode: String,
     val productName: String,
-    val quantity: Int = 1,
+    val quantity: Float = 1f,
     val quantityLocked: Boolean,
     val createdAt: Long,
+    val comment: String = "",
 )
 
 @Serializable

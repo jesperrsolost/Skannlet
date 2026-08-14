@@ -38,8 +38,9 @@ fun ScanRoute(
     uiState: ScanUiState,
     activeUserName: String?,
     users: List<UserUiState>,
+    scannerEnabled: Boolean,
     onScan: (String) -> Unit,
-    onUpdateQuantity: (String, Int) -> Unit,
+    onUpdateQuantity: (String, Float) -> Unit,
     onDeleteRow: (String) -> Unit,
     onSelectCollection: () -> Unit,
     onSetActiveUser: (String) -> Unit,
@@ -50,6 +51,7 @@ fun ScanRoute(
     ScanScreen(
         uiState = uiState,
         activeUserName = activeUserName,
+        scannerEnabled = scannerEnabled,
         onScan = onScan,
         onUpdateQuantity = onUpdateQuantity,
         onDeleteRow = onDeleteRow,
@@ -74,8 +76,9 @@ fun ScanRoute(
 fun ScanScreen(
     uiState: ScanUiState,
     activeUserName: String?,
+    scannerEnabled: Boolean,
     onScan: (String) -> Unit,
-    onUpdateQuantity: (String, Int) -> Unit,
+    onUpdateQuantity: (String, Float) -> Unit,
     onDeleteRow: (String) -> Unit,
     onSelectCollection: () -> Unit,
     onChangeUserClick: () -> Unit,
@@ -99,7 +102,7 @@ fun ScanScreen(
         } else {
             ActiveScanCard(uiState = uiState)
             ScannerInputHandler(
-                enabled = true,
+                enabled = scannerEnabled,
                 onScan = onScan,
             )
             uiState.latestScannedRow?.let { row ->
@@ -148,7 +151,7 @@ private fun ActiveScanCard(
 @Composable
 private fun LatestScannedItemCard(
     row: ScanRowUiState,
-    onQuantityChange: (Int) -> Unit,
+    onQuantityChange: (Float) -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -238,12 +241,13 @@ private fun ScanScreenPreview() {
                 id = "1",
                 barcode = "123456",
                 productName = "Demo vare - seks siffer",
-                quantity = 1,
+                quantity = 1f,
                 quantityLocked = false,
                 createdAt = System.currentTimeMillis(),
             ),
         ),
         activeUserName = "Ola Nordmann",
+        scannerEnabled = true,
         onScan = {},
         onUpdateQuantity = { _, _ -> },
         onDeleteRow = {},

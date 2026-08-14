@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project uses Semantic Versioning.
 
+## [1.1.3] - 2026-08-14
+
+### Added
+
+- Required active-user selection whenever the scanner is docked and starts charging.
+- Fractional item quantities with up to three decimal places and Norwegian decimal formatting.
+- Manual project locking from the collections-list overflow menu.
+- Return marking that can be added or removed from an unlocked project's overflow menu.
+- Per-item comments that are included in the PDF document.
+- Daily stable-release checks against GitHub with verified APK download and Android-assisted installation.
+- Versioned ZIP backup and validated restore for local app data.
+
+### Changed
+
+- Prefixed CSV, PDF, and print-job names with `Utlevering` or `Retur`.
+- Allowed update downloads to be hidden or cancelled while Android reports pending, running, or paused states.
+- Moved backup encoding, backup parsing, download polling, APK hashing, and APK inspection off the UI thread.
+
+### Fixed
+
+- Rejected backup creation when any local JSON file cannot be read instead of exporting fallback empty data.
+- Made five-file app-data restore crash-safe with journaled rollback and roll-forward recovery.
+- Detected an already charging scanner at app startup so active-user selection cannot be skipped.
+- Let the project-detail item list use the full space down to the bottom navigation bar.
+
 ## [1.1.1] - 2026-08-12
 
 ### Added
@@ -72,6 +97,7 @@ The format is based on Keep a Changelog, and this project uses Semantic Versioni
 
 - Initial release.
 
+[1.1.3]: https://github.com/jesperrsolost/Skannlet/compare/v1.1.1...v1.1.3
 [1.1.1]: https://github.com/jesperrsolost/Skannlet/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/jesperrsolost/Skannlet/compare/v1.0...v1.1.0
 [1.0.1]: https://github.com/jesperrsolost/Skannlet/commit/05e9337

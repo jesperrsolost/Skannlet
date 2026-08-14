@@ -53,6 +53,8 @@ fun CollectionsRoute(
     onCreateCollection: (String, Boolean) -> Unit,
     onOpenCollection: (String) -> Unit,
     onSetActiveCollection: (String) -> Unit,
+    onSetCollectionReturnStatus: (String, Boolean) -> Unit,
+    onLockCollection: (String) -> Unit,
     onUnlockCollection: (String) -> Unit,
     onDeleteCollection: (String) -> Unit,
     onSetActiveUser: (String) -> Unit,
@@ -70,6 +72,8 @@ fun CollectionsRoute(
         onChangeUserClick = { showUserPicker = true },
         onOpenCollection = onOpenCollection,
         onSetActiveCollection = onSetActiveCollection,
+        onSetCollectionReturnStatus = onSetCollectionReturnStatus,
+        onLockCollection = onLockCollection,
         onUnlockCollection = onUnlockCollection,
         onDeleteCollection = { collectionId -> deleteCollectionId = collectionId },
         modifier = modifier,
@@ -191,6 +195,8 @@ fun CollectionsScreen(
     onChangeUserClick: () -> Unit,
     onOpenCollection: (String) -> Unit,
     onSetActiveCollection: (String) -> Unit,
+    onSetCollectionReturnStatus: (String, Boolean) -> Unit,
+    onLockCollection: (String) -> Unit,
     onUnlockCollection: (String) -> Unit,
     onDeleteCollection: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -248,6 +254,10 @@ fun CollectionsScreen(
                             item = item,
                             onOpen = { onOpenCollection(item.id) },
                             onSetActive = { onSetActiveCollection(item.id) },
+                            onSetReturnStatus = { isReturn ->
+                                onSetCollectionReturnStatus(item.id, isReturn)
+                            },
+                            onLock = { onLockCollection(item.id) },
                             onUnlock = { onUnlockCollection(item.id) },
                             onDelete = { onDeleteCollection(item.id) },
                         )
@@ -351,6 +361,8 @@ private fun CollectionListItem(
     item: CollectionListItemUiState,
     onOpen: () -> Unit,
     onSetActive: () -> Unit,
+    onSetReturnStatus: (Boolean) -> Unit,
+    onLock: () -> Unit,
     onUnlock: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -429,6 +441,41 @@ private fun CollectionListItem(
                                     onUnlock()
                                 },
                             )
+                        } else {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (item.isReturn) {
+                                            "Fjern returmerking"
+                                        } else {
+                                            "Merk som retur"
+                                        },
+                                    )
+                                },
+                                trailingIcon = {
+                                    Checkbox(
+                                        checked = item.isReturn,
+                                        onCheckedChange = null,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSetReturnStatus(!item.isReturn)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Lås prosjekt") },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.lock_24px),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onLock()
+                                },
+                            )
                         }
                         DropdownMenuItem(
                             text = { Text("Slett prosjekt") },
@@ -498,6 +545,8 @@ private fun CollectionsScreenPreview() {
         onChangeUserClick = {},
         onOpenCollection = {},
         onSetActiveCollection = {},
+        onSetCollectionReturnStatus = { _, _ -> },
+        onLockCollection = {},
         onUnlockCollection = {},
         onDeleteCollection = {},
     )

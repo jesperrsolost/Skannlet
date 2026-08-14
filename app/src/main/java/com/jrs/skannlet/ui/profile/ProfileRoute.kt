@@ -12,10 +12,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import com.jrs.skannlet.app.LabelPrinterUiState
+import com.jrs.skannlet.app.AppUpdateUiState
 import com.jrs.skannlet.app.ProfileUiState
 import com.jrs.skannlet.printer.LabelFormat
 import com.jrs.skannlet.ui.components.NameInputDialog
@@ -45,6 +50,7 @@ private enum class ProfileDialog {
 fun ProfileRoute(
     uiState: ProfileUiState,
     labelPrinterState: LabelPrinterUiState,
+    appUpdateState: AppUpdateUiState,
     onAddUser: (String) -> Unit,
     onDeleteUser: (String) -> Unit,
     onSetActiveUser: (String) -> Unit,
@@ -56,16 +62,23 @@ fun ProfileRoute(
     onSelectLabelFormat: (String) -> Unit,
     onSaveLabelFormat: (LabelFormat) -> Unit,
     onDeleteLabelFormat: (String) -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onRequestBackup: () -> Unit,
+    onRestoreBackup: (Uri) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var currentPage by rememberSaveable { mutableStateOf(ProfilePage.Main) }
     var activeDialog by rememberSaveable { mutableStateOf<ProfileDialog?>(null) }
+    var pendingRestoreUri by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val productImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         uri?.let(onImportProducts)
     }
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri -> pendingRestoreUri = uri?.toString() }
 
     when (currentPage) {
         ProfilePage.Main -> ProfileScreen(
@@ -97,8 +110,12 @@ fun ProfileRoute(
         ProfilePage.About -> {
             BackHandler { currentPage = ProfilePage.Main }
             AboutApplicationScreen(
+                updateState = appUpdateState,
                 onBackClick = { currentPage = ProfilePage.Main },
                 onSourceCodeClick = { openSourceCode(context) },
+                onCheckForUpdates = onCheckForUpdates,
+                onExportBackup = onRequestBackup,
+                onRestoreBackup = { restoreBackupLauncher.launch(arrayOf("application/zip")) },
                 modifier = modifier,
             )
         }
@@ -159,6 +176,25 @@ fun ProfileRoute(
         )
 
         null -> Unit
+    }
+
+    pendingRestoreUri?.let { uriString ->
+        AlertDialog(
+            onDismissRequest = { pendingRestoreUri = null },
+            title = { Text("Gjenopprett sikkerhetskopi") },
+            text = { Text("Alle lokale brukere, prosjekter, varer og appstatus erstattes med innholdet i sikkerhetskopien.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingRestoreUri = null
+                        onRestoreBackup(Uri.parse(uriString))
+                    },
+                ) { Text("Gjenopprett") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestoreUri = null }) { Text("Avbryt") }
+            },
+        )
     }
 }
 
