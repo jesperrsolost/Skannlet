@@ -2,19 +2,28 @@ package com.jrs.skannlet.data.repository
 
 import android.content.Context
 import android.net.Uri
+import com.jrs.skannlet.data.backup.buildAppDataBackup
+import com.jrs.skannlet.data.backup.parseAppDataBackup
 import com.jrs.skannlet.data.export.CsvExporter
 import com.jrs.skannlet.data.export.ExportedCsv
 import com.jrs.skannlet.data.importer.ProductCsvImportException
 import com.jrs.skannlet.data.importer.ProductCsvImporter
 import com.jrs.skannlet.data.model.AppUser
+import com.jrs.skannlet.data.model.MAX_SCAN_ROW_COMMENT_LENGTH
 import com.jrs.skannlet.data.model.Product
 import com.jrs.skannlet.data.model.ScanCollection
 import com.jrs.skannlet.data.model.ScanRow
 import com.jrs.skannlet.data.model.StoredAppState
 import com.jrs.skannlet.data.storage.LocalJsonStorage
+import com.jrs.skannlet.data.storage.StoredData
 import com.jrs.skannlet.data.storage.StorageReadResult
+import com.jrs.skannlet.util.formatQuantity
+import com.jrs.skannlet.util.normalizedQuantityOrNull
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -34,6 +43,60 @@ data class RepositoryResult<T>(
     val value: T,
     val message: String? = null,
 )
+
+internal interface AppDataBackupCodec {
+    fun build(data: StoredData, appVersion: String, createdAt: Long): ByteArray
+    fun parse(bytes: ByteArray): StoredData
+}
+
+internal object DefaultAppDataBackupCodec : AppDataBackupCodec {
+    override fun build(data: StoredData, appVersion: String, createdAt: Long): ByteArray =
+        buildAppDataBackup(data, appVersion, createdAt)
+
+    override fun parse(bytes: ByteArray): StoredData = parseAppDataBackup(bytes)
+}
+
+internal suspend fun buildBackupOnDispatcher(
+    codec: AppDataBackupCodec,
+    data: StoredData,
+    appVersion: String,
+    createdAt: Long,
+    dispatcher: CoroutineDispatcher,
+): ByteArray = withContext(dispatcher) {
+    codec.build(data, appVersion, createdAt)
+}
+
+internal suspend fun parseBackupOnDispatcher(
+    codec: AppDataBackupCodec,
+    bytes: ByteArray,
+    dispatcher: CoroutineDispatcher,
+): StoredData = withContext(dispatcher) {
+    codec.parse(bytes)
+}
+
+internal interface BackupDocumentIo {
+    suspend fun read(uri: Uri): ByteArray
+    suspend fun write(uri: Uri, bytes: ByteArray)
+}
+
+private class ContentResolverBackupDocumentIo(
+    context: Context,
+    private val ioDispatcher: CoroutineDispatcher,
+) : BackupDocumentIo {
+    private val contentResolver = context.applicationContext.contentResolver
+
+    override suspend fun read(uri: Uri): ByteArray = withContext(ioDispatcher) {
+        requireNotNull(contentResolver.openInputStream(uri)).use { input ->
+            input.readAtMost(MAX_BACKUP_DOCUMENT_BYTES + 1)
+        }
+    }
+
+    override suspend fun write(uri: Uri, bytes: ByteArray) = withContext(ioDispatcher) {
+        requireNotNull(contentResolver.openOutputStream(uri, "wt")).use { output ->
+            output.write(bytes)
+        }
+    }
+}
 
 data class DeletedScanRow(
     val row: ScanRow,
@@ -57,26 +120,67 @@ interface ScannerRepositoryContract {
     suspend fun setNextCollectionProjectNumber(projectNumber: Int): RepositoryResult<Unit>
     suspend fun setActiveCollection(collectionId: String): RepositoryResult<Unit>
     suspend fun renameCollection(collectionId: String, name: String): RepositoryResult<Unit>
+    suspend fun setCollectionReturnStatus(collectionId: String, isReturn: Boolean): RepositoryResult<Unit>
+    suspend fun lockCollection(collectionId: String): RepositoryResult<Unit>
     suspend fun unlockCollection(collectionId: String): RepositoryResult<Unit>
     suspend fun deleteCollection(collectionId: String): RepositoryResult<DeletedCollection?>
     suspend fun restoreCollection(deleted: DeletedCollection): RepositoryResult<Unit>
     suspend fun scanBarcode(rawBarcode: String): RepositoryResult<Unit>
-    suspend fun updateQuantity(rowId: String, quantity: Int): RepositoryResult<Unit>
+    suspend fun updateQuantity(rowId: String, quantity: Float): RepositoryResult<Unit>
+    suspend fun updateScanRowComment(rowId: String, comment: String): RepositoryResult<Unit>
     suspend fun deleteScanRow(rowId: String): RepositoryResult<DeletedScanRow?>
     suspend fun restoreScanRow(deleted: DeletedScanRow): RepositoryResult<Unit>
     suspend fun exportCollection(collectionId: String): RepositoryResult<ExportedCsv?>
     suspend fun importProducts(uri: Uri): RepositoryResult<Unit>
     suspend fun deleteProducts(): RepositoryResult<Unit>
+    suspend fun exportAppDataBackup(uri: Uri, appVersion: String): RepositoryResult<Unit>
+    suspend fun restoreAppDataBackup(uri: Uri): RepositoryResult<Unit>
 }
 
-class ScannerRepository(context: Context) : ScannerRepositoryContract {
-    private val appContext = context.applicationContext
-    private val storage = LocalJsonStorage(context)
-    private val exporter = CsvExporter(context)
+class ScannerRepository internal constructor(
+    private val appContext: Context,
+    private val storage: LocalJsonStorage,
+    private val exporter: CsvExporter,
+    private val backupCodec: AppDataBackupCodec,
+    private val backupDocumentIo: BackupDocumentIo,
+    private val defaultDispatcher: CoroutineDispatcher,
+) : ScannerRepositoryContract {
+    constructor(context: Context) : this(
+        appContext = context.applicationContext,
+        storage = LocalJsonStorage(context),
+        exporter = CsvExporter(context),
+        backupCodec = DefaultAppDataBackupCodec,
+        backupDocumentIo = ContentResolverBackupDocumentIo(context, Dispatchers.IO),
+        defaultDispatcher = Dispatchers.Default,
+    )
+
     private val mutex = Mutex()
 
     override suspend fun loadSnapshot(): RepositoryResult<AppSnapshot> = mutex.withLock {
         loadSnapshotLocked()
+    }
+
+    override suspend fun exportAppDataBackup(
+        uri: Uri,
+        appVersion: String,
+    ): RepositoryResult<Unit> {
+        val data = mutex.withLock { storage.readAllForBackup() }
+        val backup = buildBackupOnDispatcher(
+            codec = backupCodec,
+            data = data,
+            appVersion = appVersion,
+            createdAt = System.currentTimeMillis(),
+            dispatcher = defaultDispatcher,
+        )
+        backupDocumentIo.write(uri, backup)
+        return RepositoryResult(Unit, "Sikkerhetskopien er lagret.")
+    }
+
+    override suspend fun restoreAppDataBackup(uri: Uri): RepositoryResult<Unit> {
+        val bytes = backupDocumentIo.read(uri)
+        val restored = parseBackupOnDispatcher(backupCodec, bytes, defaultDispatcher)
+        mutex.withLock { storage.replaceAll(restored) }
+        return RepositoryResult(Unit, "Sikkerhetskopien er gjenopprettet.")
     }
 
     override suspend fun addUser(name: String): RepositoryResult<Unit> = mutex.withLock {
@@ -199,6 +303,55 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
         RepositoryResult(Unit, "Samlingen er endret.")
     }
 
+    override suspend fun setCollectionReturnStatus(
+        collectionId: String,
+        isReturn: Boolean,
+    ): RepositoryResult<Unit> = mutex.withLock {
+        val read = storage.readAll()
+        val result = updateCollectionReturnStatus(
+            collections = read.data.collections,
+            collectionId = collectionId,
+            isReturn = isReturn,
+            updatedAt = System.currentTimeMillis(),
+        )
+        when (result) {
+            CollectionReturnStatusResult.Locked ->
+                return@withLock RepositoryResult(Unit, "Prosjektet er låst. Lås det opp før endring.")
+            CollectionReturnStatusResult.Missing ->
+                return@withLock RepositoryResult(Unit, "Samlingen finnes ikke.")
+            CollectionReturnStatusResult.Unchanged ->
+                return@withLock RepositoryResult(Unit)
+            is CollectionReturnStatusResult.Success -> storage.saveCollections(result.collections)
+        }
+        RepositoryResult(
+            Unit,
+            if (isReturn) "Prosjektet er merket som retur." else "Returmerkingen er fjernet.",
+        )
+    }
+
+    override suspend fun lockCollection(collectionId: String): RepositoryResult<Unit> = mutex.withLock {
+        val read = storage.readAll()
+        val result = lockCollectionState(
+            collections = read.data.collections,
+            activeCollectionId = read.data.appState.activeCollectionId,
+            collectionId = collectionId,
+            updatedAt = System.currentTimeMillis(),
+        )
+        when (result) {
+            CollectionLockResult.AlreadyLocked ->
+                return@withLock RepositoryResult(Unit, "Prosjektet er allerede låst.")
+            CollectionLockResult.Missing ->
+                return@withLock RepositoryResult(Unit, "Samlingen finnes ikke.")
+            is CollectionLockResult.Success -> {
+                storage.saveCollections(result.collections)
+                if (result.activeCollectionId != read.data.appState.activeCollectionId) {
+                    storage.saveAppState(read.data.appState.copy(activeCollectionId = result.activeCollectionId))
+                }
+            }
+        }
+        RepositoryResult(Unit, "Prosjektet er låst.")
+    }
+
     override suspend fun unlockCollection(collectionId: String): RepositoryResult<Unit> = mutex.withLock {
         val read = storage.readAll()
         var found = false
@@ -301,7 +454,7 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
             return@withLock RepositoryResult(Unit, "Unik vare er allerede skannet: $barcode")
         }
         if (!quantityLocked && existingRow != null) {
-            val nextQuantity = existingRow.quantity + 1
+            val nextQuantity = existingRow.quantity + 1f
             val updatedRows = read.data.rows.map { row ->
                 if (row.id == existingRow.id) {
                     row.copy(
@@ -318,7 +471,10 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
 
             storage.saveRows(updatedRows)
             storage.saveCollections(updatedCollections)
-            return@withLock RepositoryResult(Unit, "Registrert: $barcode (antall: $nextQuantity)")
+            return@withLock RepositoryResult(
+                Unit,
+                "Registrert: $barcode (antall: ${formatQuantity(nextQuantity)})",
+            )
         }
 
         val row = ScanRow(
@@ -326,7 +482,7 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
             collectionId = activeCollectionId,
             barcode = barcode,
             productName = productName,
-            quantity = 1,
+            quantity = 1f,
             quantityLocked = quantityLocked,
             createdAt = now,
         )
@@ -338,8 +494,9 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
         RepositoryResult(Unit, "Registrert: $barcode")
     }
 
-    override suspend fun updateQuantity(rowId: String, quantity: Int): RepositoryResult<Unit> = mutex.withLock {
-        val safeQuantity = quantity.coerceAtLeast(1)
+    override suspend fun updateQuantity(rowId: String, quantity: Float): RepositoryResult<Unit> = mutex.withLock {
+        val safeQuantity = quantity.normalizedQuantityOrNull()
+            ?: return@withLock RepositoryResult(Unit, "Antall må være større enn 0 med maks tre desimaler.")
         val read = storage.readAll()
         val collectionsById = read.data.collections.associateBy { it.id }
         var updatedCollectionId: String? = null
@@ -372,6 +529,34 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
             )
         }
         RepositoryResult(Unit)
+    }
+
+    override suspend fun updateScanRowComment(
+        rowId: String,
+        comment: String,
+    ): RepositoryResult<Unit> = mutex.withLock {
+        val read = storage.readAll()
+        when (
+            val result = updateScanRowCommentState(
+                rows = read.data.rows,
+                collections = read.data.collections,
+                rowId = rowId,
+                comment = comment,
+                updatedAt = System.currentTimeMillis(),
+            )
+        ) {
+            ScanRowCommentUpdateResult.Missing -> RepositoryResult(Unit, "Raden finnes ikke.")
+            ScanRowCommentUpdateResult.Locked ->
+                RepositoryResult(Unit, "Prosjektet er låst. Lås det opp før endring.")
+            ScanRowCommentUpdateResult.TooLong ->
+                RepositoryResult(Unit, "Kommentaren kan ikke være lengre enn 200 tegn.")
+            ScanRowCommentUpdateResult.Unchanged -> RepositoryResult(Unit)
+            is ScanRowCommentUpdateResult.Success -> {
+                storage.saveRows(result.rows)
+                storage.saveCollections(result.collections)
+                RepositoryResult(Unit, if (result.comment.isBlank()) "Kommentaren er fjernet." else "Kommentaren er lagret.")
+            }
+        }
     }
 
     override suspend fun deleteScanRow(rowId: String): RepositoryResult<DeletedScanRow?> = mutex.withLock {
@@ -432,10 +617,11 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
                 it
             }
         }
-        val nextActiveCollectionId = when (snapshot.activeCollectionId) {
-            collectionId -> updatedCollections.firstOrNull { !it.isLocked }?.id
-            else -> snapshot.activeCollectionId
-        }
+        val nextActiveCollectionId = activeCollectionIdAfterLock(
+            collections = updatedCollections,
+            activeCollectionId = snapshot.activeCollectionId,
+            lockedCollectionId = collectionId,
+        )
         storage.saveCollections(updatedCollections)
         if (nextActiveCollectionId != snapshot.activeCollectionId) {
             storage.saveAppState(
@@ -630,4 +816,127 @@ class ScannerRepository(context: Context) : ScannerRepositoryContract {
         const val UNKNOWN_PRODUCT = "Ukjent vare"
         const val SIX_DIGITS = 6
     }
+}
+
+internal fun activeCollectionIdAfterLock(
+    collections: List<ScanCollection>,
+    activeCollectionId: String?,
+    lockedCollectionId: String,
+): String? = if (activeCollectionId == lockedCollectionId) {
+    collections.firstOrNull { !it.isLocked }?.id
+} else {
+    activeCollectionId
+}
+
+internal sealed interface CollectionLockResult {
+    data object Missing : CollectionLockResult
+    data object AlreadyLocked : CollectionLockResult
+    data class Success(
+        val collections: List<ScanCollection>,
+        val activeCollectionId: String?,
+    ) : CollectionLockResult
+}
+
+internal fun lockCollectionState(
+    collections: List<ScanCollection>,
+    activeCollectionId: String?,
+    collectionId: String,
+    updatedAt: Long,
+): CollectionLockResult {
+    val collection = collections.firstOrNull { it.id == collectionId }
+        ?: return CollectionLockResult.Missing
+    if (collection.isLocked) return CollectionLockResult.AlreadyLocked
+
+    val updatedCollections = collections.map { item ->
+        if (item.id == collectionId) item.copy(isLocked = true, updatedAt = updatedAt) else item
+    }
+    return CollectionLockResult.Success(
+        collections = updatedCollections,
+        activeCollectionId = activeCollectionIdAfterLock(
+            collections = updatedCollections,
+            activeCollectionId = activeCollectionId,
+            lockedCollectionId = collectionId,
+        ),
+    )
+}
+
+internal sealed interface CollectionReturnStatusResult {
+    data object Missing : CollectionReturnStatusResult
+    data object Locked : CollectionReturnStatusResult
+    data object Unchanged : CollectionReturnStatusResult
+    data class Success(val collections: List<ScanCollection>) : CollectionReturnStatusResult
+}
+
+internal fun updateCollectionReturnStatus(
+    collections: List<ScanCollection>,
+    collectionId: String,
+    isReturn: Boolean,
+    updatedAt: Long,
+): CollectionReturnStatusResult {
+    val collection = collections.firstOrNull { it.id == collectionId }
+        ?: return CollectionReturnStatusResult.Missing
+    if (collection.isLocked) return CollectionReturnStatusResult.Locked
+    if (collection.isReturn == isReturn) return CollectionReturnStatusResult.Unchanged
+
+    return CollectionReturnStatusResult.Success(
+        collections.map { item ->
+            if (item.id == collectionId) {
+                item.copy(isReturn = isReturn, updatedAt = updatedAt)
+            } else {
+                item
+            }
+        },
+    )
+}
+
+internal sealed interface ScanRowCommentUpdateResult {
+    data object Missing : ScanRowCommentUpdateResult
+    data object Locked : ScanRowCommentUpdateResult
+    data object TooLong : ScanRowCommentUpdateResult
+    data object Unchanged : ScanRowCommentUpdateResult
+    data class Success(
+        val rows: List<ScanRow>,
+        val collections: List<ScanCollection>,
+        val comment: String,
+    ) : ScanRowCommentUpdateResult
+}
+
+internal fun updateScanRowCommentState(
+    rows: List<ScanRow>,
+    collections: List<ScanCollection>,
+    rowId: String,
+    comment: String,
+    updatedAt: Long,
+): ScanRowCommentUpdateResult {
+    val row = rows.firstOrNull { it.id == rowId } ?: return ScanRowCommentUpdateResult.Missing
+    val collection = collections.firstOrNull { it.id == row.collectionId }
+        ?: return ScanRowCommentUpdateResult.Missing
+    if (collection.isLocked) return ScanRowCommentUpdateResult.Locked
+
+    val normalizedComment = comment.trim().replace(Regex("\\s+"), " ")
+    if (normalizedComment.length > MAX_SCAN_ROW_COMMENT_LENGTH) return ScanRowCommentUpdateResult.TooLong
+    if (row.comment == normalizedComment) return ScanRowCommentUpdateResult.Unchanged
+
+    return ScanRowCommentUpdateResult.Success(
+        rows = rows.map { item ->
+            if (item.id == rowId) item.copy(comment = normalizedComment) else item
+        },
+        collections = collections.map { item ->
+            if (item.id == row.collectionId) item.copy(updatedAt = updatedAt) else item
+        },
+        comment = normalizedComment,
+    )
+}
+
+private const val MAX_BACKUP_DOCUMENT_BYTES = 25 * 1024 * 1024
+
+private fun InputStream.readAtMost(maxBytes: Int): ByteArray {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(8 * 1024)
+    while (output.size() < maxBytes) {
+        val count = read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+        if (count < 0) break
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
 }

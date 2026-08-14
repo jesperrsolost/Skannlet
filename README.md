@@ -4,17 +4,21 @@ Skannlet er en Android-app for lokal registrering av varer med strekkode. Skanni
 
 Appen er utviklet for Ø. M. Fjeld Prosjektservice og lagrer data lokalt på enheten. Den krever ingen brukerkonto, ekstern database eller skytjeneste.
 
-Gjeldende versjon er **1.1.1**. Se [CHANGELOG.md](CHANGELOG.md) for endringshistorikk.
+Gjeldende versjon er **1.1.3**. Se [CHANGELOG.md](CHANGELOG.md) for endringshistorikk.
 
 ## Funksjoner
 
-- Opprett utleverings- og returprosjekter med automatisk løpenummer.
+- Opprett utleverings- og returprosjekter med automatisk løpenummer, og endre returmerking fra prosjektmenyen.
 - Skann med Zebra-skanner eller annen tastaturbasert strekkodeleser.
 - Slå opp produktnavn fra en importert CSV-fil.
-- Juster antall og rediger skannede varer før prosjektet låses.
+- Juster hele eller brøkdelsvise antall, for eksempel `1,5`, før prosjektet låses.
 - Se hvem som opprettet et prosjekt, og angre sletting av prosjekter og varer.
+- Lås eller lås opp prosjekter fra menyen i prosjektlisten.
+- Velg aktiv bruker hver gang skanneren settes i dokking og begynner å lade.
 - Søk i prosjektlisten og bytt mellom lokale brukere.
 - Eksporter prosjektdata som CSV og PDF/følgeseddel.
+- Eksporter og gjenopprett en kontrollert ZIP-sikkerhetskopi av lokale appdata.
+- Se etter nye stabile GitHub-utgivelser og installer signaturverifiserte APK-oppdateringer.
 - Skriv ut strekkodeetiketter til TSC TC200 over lokalnett.
 - Tilpass etikettmål og medietype for skriveren.
 
@@ -53,7 +57,7 @@ Det innebygde formatet `Small Barcode` er tilpasset etiketter på 35 × 14 mm me
 
 ## Eksport
 
-Eksport oppretter en CSV-fil og forsøker å legge ved en PDF-følgeseddel i Androids delingsdialog. Følgeseddelen bruker A4-format, merkes som utlevering eller retur og inneholder prosjektinformasjon, oppretter, varer og tidspunkt.
+Eksport oppretter en CSV-fil og forsøker å legge ved en PDF-følgeseddel i Androids delingsdialog. Følgeseddelen bruker A4-format, merkes som utlevering eller retur og inneholder prosjektinformasjon, oppretter, varer, kommentarer og tidspunkt. Filnavn og utskriftsjobber starter med `Utlevering_` eller `Retur_`.
 
 Et prosjekt låses automatisk etter eksport for å hindre utilsiktede endringer. Det kan låses opp igjen fra prosjektdetaljene.
 
@@ -62,9 +66,17 @@ Et prosjekt låses automatisk etter eksport for å hindre utilsiktede endringer.
 - Brukere, prosjekter, skanninger og produktliste lagres lokalt i appens private område.
 - Skriveroppsett lagres lokalt og tas ikke med i Android-sikkerhetskopi eller enhetsoverføring.
 - Appen har ingen innlogging, sporing eller ekstern synkronisering.
-- Nettverk brukes bare ved direkte kommunikasjon med en konfigurert etikettskriver og når brukeren åpner eksterne lenker.
+- Nettverk brukes ved direkte kommunikasjon med en konfigurert etikettskriver, ved sjekk og nedlasting av GitHub-oppdateringer og når brukeren åpner eksterne lenker.
 
 Avinstallering av appen sletter normalt de lokale appdataene.
+
+## Oppdateringer og sikkerhetskopi
+
+Appen ser etter en nyere stabil utgivelse på GitHub maksimalt én gang per døgn. En oppdatering lastes bare ned etter bekreftelse, og APK-filens kontrollsum, pakkenavn, versjon og signatur kontrolleres før Android-installasjonen åpnes. Under nedlasting kan dialogen skjules, eller nedlastingen avbrytes. Android krever fortsatt at brukeren tillater Skannlet som installasjonskilde og bekrefter installasjonen.
+
+Hver GitHub-utgivelse må bruke taggen `vX.Y.Z` og inneholde én APK med navnet `Skannlet_vX.Y.Z.apk`. `versionName` må være `X.Y.Z`, `versionCode` må økes, og APK-en må signeres med samme utgivelsesnøkkel som den installerte appen.
+
+Fra `Profil` → `Om applikasjonen` kan lokale JSON-data eksporteres til en kontrollert ZIP-fil og gjenopprettes senere. Sikkerhetskopiering avvises hvis noen av de lokale datafilene ikke kan leses, og gjenoppretting bruker en journalført transaksjon for å unngå et blandet datasett etter avbrudd. Ta en sikkerhetskopi før større oppdateringer, og installer alltid en oppdatering over eksisterende app uten å avinstallere først.
 
 ## Installasjon
 

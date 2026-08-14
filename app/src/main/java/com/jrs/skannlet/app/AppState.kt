@@ -1,8 +1,11 @@
 package com.jrs.skannlet.app
 
 import android.net.Uri
+import android.content.Intent
 import com.jrs.skannlet.data.export.CollectionPrintDocument
 import com.jrs.skannlet.printer.LabelPrinterSettings
+import com.jrs.skannlet.update.UpdateDownloadPhase
+import com.jrs.skannlet.update.UpdateRelease
 
 data class AppUiState(
     val isLoading: Boolean = true,
@@ -12,6 +15,27 @@ data class AppUiState(
     val scan: ScanUiState = ScanUiState(),
     val profile: ProfileUiState = ProfileUiState(),
     val labelPrinter: LabelPrinterUiState = LabelPrinterUiState(),
+    val appUpdate: AppUpdateUiState = AppUpdateUiState(),
+    val isDockUserSelectionRequired: Boolean = false,
+)
+
+enum class AppUpdateStatus {
+    Idle,
+    Checking,
+    Available,
+    Downloading,
+    Ready,
+    Failed,
+}
+
+data class AppUpdateUiState(
+    val status: AppUpdateStatus = AppUpdateStatus.Idle,
+    val release: UpdateRelease? = null,
+    val progressPercent: Int? = null,
+    val downloadPhase: UpdateDownloadPhase? = null,
+    val downloadedFilePath: String? = null,
+    val errorMessage: String? = null,
+    val isDialogVisible: Boolean = true,
 )
 
 data class LabelPrinterUiState(
@@ -54,9 +78,10 @@ data class ScanRowUiState(
     val id: String,
     val barcode: String,
     val productName: String,
-    val quantity: Int,
+    val quantity: Float,
     val quantityLocked: Boolean,
     val createdAt: Long,
+    val comment: String = "",
 )
 
 data class ScanUiState(
@@ -94,4 +119,11 @@ sealed interface AppEffect {
         val printDocument: CollectionPrintDocument,
         val printFileName: String,
     ) : AppEffect
+
+    data class CreateBackupDocument(
+        val fileName: String,
+        val continueWithUpdate: Boolean,
+    ) : AppEffect
+
+    data class LaunchIntent(val intent: Intent) : AppEffect
 }

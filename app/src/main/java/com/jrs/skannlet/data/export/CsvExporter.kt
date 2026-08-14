@@ -6,6 +6,7 @@ import androidx.core.content.FileProvider
 import com.jrs.skannlet.data.model.AppUser
 import com.jrs.skannlet.data.model.ScanCollection
 import com.jrs.skannlet.data.model.ScanRow
+import com.jrs.skannlet.util.formatQuantity
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
@@ -25,10 +26,16 @@ class CsvExporter(context: Context) {
         rows: List<ScanRow>,
     ): ExportedCsv {
         val exportDir = File(appContext.cacheDir, "exports").apply { mkdirs() }
-        val fileName = buildFileName(user.name, collection.name, rows.size)
+        val fileName = buildCollectionCsvFileName(
+            userName = user.name,
+            collectionName = collection.name,
+            isReturn = collection.isReturn,
+            rowCount = rows.size,
+            timestamp = TimestampFormatter.format(Instant.now()),
+        )
         val file = File(exportDir, fileName)
 
-        file.writeText(buildCsv(rows))
+        file.writeText(buildCollectionCsv(rows))
 
         val uri = FileProvider.getUriForFile(
             appContext,
@@ -38,35 +45,49 @@ class CsvExporter(context: Context) {
         return ExportedCsv(uri = uri, fileName = fileName)
     }
 
-    private fun buildCsv(rows: List<ScanRow>): String = buildString {
-        appendLine("antall;strekkode")
-        rows.forEach { row ->
-            appendCsvValue(row.quantity.toString())
-            append(';')
-            appendCsvValue(row.barcode)
-            append('\n')
-        }
-    }
-
-    private fun StringBuilder.appendCsvValue(value: String) {
-        append(value.replace("\"", "\"\""))
-    }
-
-    private fun buildFileName(userName: String, collectionName: String, rowCount: Int): String {
-        val timestamp = TimestampFormatter.format(Instant.now())
-        return "${sanitizeFilePart(userName)}_${sanitizeFilePart(collectionName)}_${rowCount}rader_$timestamp.csv"
-    }
-
-    private fun sanitizeFilePart(value: String): String {
-        val sanitized = value.trim()
-            .replace(Regex("\\s+"), "_")
-            .replace(Regex("[^\\p{L}\\p{N}._-]"), "")
-        return sanitized.ifBlank { "navn" }
-    }
-
     private companion object {
         val TimestampFormatter: DateTimeFormatter = DateTimeFormatter
             .ofPattern("yyyyMMdd_HHmmss")
             .withZone(ZoneId.systemDefault())
     }
+}
+
+internal fun buildCollectionCsvFileName(
+    userName: String,
+    collectionName: String,
+    isReturn: Boolean,
+    rowCount: Int,
+    timestamp: String,
+): String = buildString {
+    append(collectionDocumentType(isReturn))
+    append('_')
+    append(sanitizeFilePart(userName))
+    append('_')
+    append(sanitizeFilePart(collectionName))
+    append('_')
+    append(rowCount)
+    append("rader_")
+    append(timestamp)
+    append(".csv")
+}
+
+private fun sanitizeFilePart(value: String): String {
+    val sanitized = value.trim()
+        .replace(Regex("\\s+"), "_")
+        .replace(Regex("[^\\p{L}\\p{N}._-]"), "")
+    return sanitized.ifBlank { "navn" }
+}
+
+internal fun buildCollectionCsv(rows: List<ScanRow>): String = buildString {
+    appendLine("antall;strekkode")
+    rows.forEach { row ->
+        appendCsvValue(formatQuantity(row.quantity))
+        append(';')
+        appendCsvValue(row.barcode)
+        append('\n')
+    }
+}
+
+private fun StringBuilder.appendCsvValue(value: String) {
+    append(value.replace("\"", "\"\""))
 }

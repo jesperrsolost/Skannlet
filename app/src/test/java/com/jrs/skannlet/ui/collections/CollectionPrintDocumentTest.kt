@@ -1,6 +1,7 @@
 package com.jrs.skannlet.ui.collections
 
 import com.jrs.skannlet.app.CollectionDetailUiState
+import com.jrs.skannlet.app.ScanRowUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -39,9 +40,68 @@ class CollectionPrintDocumentTest {
         assertEquals("Retur #12 | Testprosjekt", document.title)
     }
 
+    @Test
+    fun `delivery PDF and print job names start with delivery document type`() {
+        val detail = collectionDetail(creatorName = "Kari Nordmann")
+
+        assertEquals("Utlevering_Testprosjekt.pdf", detail.printFileName())
+        assertEquals("Utlevering_Testprosjekt", detail.printJobName())
+    }
+
+    @Test
+    fun `return PDF and print job names start with return document type`() {
+        val detail = collectionDetail(
+            creatorName = "Kari Nordmann",
+            isReturn = true,
+        )
+
+        assertEquals("Retur_Testprosjekt.pdf", detail.printFileName())
+        assertEquals("Retur_Testprosjekt", detail.printJobName())
+    }
+
+    @Test
+    fun `print document formats fractional quantity with decimal comma`() {
+        val row = ScanRowUiState(
+            id = "row-id",
+            barcode = "123456",
+            productName = "Testprodukt",
+            quantity = 1.5f,
+            quantityLocked = false,
+            createdAt = 0L,
+        )
+
+        val document = collectionDetail(
+            creatorName = "Kari Nordmann",
+            rows = listOf(row),
+        ).toPrintDocument()
+
+        assertEquals("1,5", document.rows.single().quantity)
+    }
+
+    @Test
+    fun `print document includes row comment`() {
+        val row = ScanRowUiState(
+            id = "row-id",
+            barcode = "123456",
+            productName = "Testprodukt",
+            quantity = 1f,
+            quantityLocked = false,
+            createdAt = 0L,
+            comment = "Leveres til andre etasje",
+        )
+
+        val document = collectionDetail(
+            creatorName = "Kari Nordmann",
+            rows = listOf(row),
+        ).toPrintDocument()
+
+        assertEquals("Leveres til andre etasje", document.rows.single().comment)
+    }
+
     private fun collectionDetail(
         creatorName: String?,
         isReturn: Boolean = false,
+        rows: List<ScanRowUiState> = emptyList(),
     ) = CollectionDetailUiState(
         id = "collection-id",
         projectNumber = 12,
@@ -52,6 +112,6 @@ class CollectionPrintDocumentTest {
         isActive = true,
         isLocked = false,
         isReturn = isReturn,
-        rows = emptyList(),
+        rows = rows,
     )
 }

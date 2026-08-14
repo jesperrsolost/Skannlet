@@ -35,16 +35,22 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.jrs.skannlet.R
+import com.jrs.skannlet.util.decrementQuantity
+import com.jrs.skannlet.util.formatQuantity
+import com.jrs.skannlet.util.incrementQuantity
+import com.jrs.skannlet.util.parseQuantity
 
 @Composable
 fun QuantityControls(
-    quantity: Int,
-    onQuantityChange: (Int) -> Unit,
+    quantity: Float,
+    onQuantityChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     compact: Boolean = false,
 ) {
     var showQuantityDialog by rememberSaveable { mutableStateOf(false) }
+    val decrementedQuantity = decrementQuantity(quantity)
+    val incrementedQuantity = incrementQuantity(quantity)
     val buttonModifier = if (compact) Modifier.size(40.dp) else Modifier
     val buttonContentPadding = if (compact) PaddingValues(0.dp) else ButtonDefaults.ContentPadding
 
@@ -55,8 +61,8 @@ fun QuantityControls(
     ) {
         Text("Antall", style = MaterialTheme.typography.bodyMedium)
         OutlinedButton(
-            enabled = enabled && quantity > 1,
-            onClick = { onQuantityChange(quantity - 1) },
+            enabled = enabled && decrementedQuantity != null,
+            onClick = { decrementedQuantity?.let(onQuantityChange) },
             modifier = buttonModifier,
             contentPadding = buttonContentPadding,
         ) {
@@ -71,11 +77,11 @@ fun QuantityControls(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             modifier = Modifier.widthIn(min = 48.dp),
         ) {
-            Text(quantity.toString(), style = MaterialTheme.typography.titleMedium)
+            Text(formatQuantity(quantity), style = MaterialTheme.typography.titleMedium)
         }
         OutlinedButton(
-            enabled = enabled && quantity < Int.MAX_VALUE,
-            onClick = { onQuantityChange(quantity + 1) },
+            enabled = enabled && incrementedQuantity != null,
+            onClick = { incrementedQuantity?.let(onQuantityChange) },
             modifier = buttonModifier,
             contentPadding = buttonContentPadding,
         ) {
@@ -100,18 +106,18 @@ fun QuantityControls(
 
 @Composable
 private fun QuantityInputDialog(
-    initialQuantity: Int,
-    onConfirm: (Int) -> Unit,
+    initialQuantity: Float,
+    onConfirm: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var value by rememberSaveable(initialQuantity) { mutableStateOf(initialQuantity.toString()) }
+    var value by rememberSaveable(initialQuantity) { mutableStateOf(formatQuantity(initialQuantity)) }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    val quantity = value.toIntOrNull()
-    val isValid = quantity != null && quantity > 0
+    val quantity = parseQuantity(value)
+    val isValid = quantity != null
 
     fun submit() {
-        quantity?.takeIf { it > 0 }?.let(onConfirm)
+        quantity?.let(onConfirm)
     }
 
     LaunchedEffect(Unit) {
@@ -127,18 +133,18 @@ private fun QuantityInputDialog(
                 OutlinedTextField(
                     value = value,
                     onValueChange = { input ->
-                        value = input.filter { it.isDigit() }
+                        value = input.filter { it.isDigit() || it == ',' || it == '.' }
                     },
                     label = { Text("Antall") },
                     singleLine = true,
                     isError = value.isNotBlank() && !isValid,
                     supportingText = {
                         if (value.isNotBlank() && !isValid) {
-                            Text("Skriv inn et tall større enn 0")
+                            Text("Skriv inn et tall større enn 0 med maks tre desimaler")
                         }
                     },
                     keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
+                        keyboardType = KeyboardType.Decimal,
                         imeAction = ImeAction.Done,
                     ),
                     keyboardActions = KeyboardActions(onDone = { submit() }),

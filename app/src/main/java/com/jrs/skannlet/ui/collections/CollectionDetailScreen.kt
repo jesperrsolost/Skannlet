@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,11 +52,14 @@ import com.jrs.skannlet.app.CollectionsUiState
 import com.jrs.skannlet.app.ScanRowUiState
 import com.jrs.skannlet.data.export.CollectionPrintDocument
 import com.jrs.skannlet.data.export.CollectionPrintRow
+import com.jrs.skannlet.data.export.collectionDocumentType
 import com.jrs.skannlet.data.export.collectionPrintAdapter
 import com.jrs.skannlet.data.export.collectionPrintAttributes
+import com.jrs.skannlet.data.model.MAX_SCAN_ROW_COMMENT_LENGTH
 import com.jrs.skannlet.ui.components.NameInputDialog
 import com.jrs.skannlet.ui.components.QuantityControls
 import com.jrs.skannlet.util.formatDateTime
+import com.jrs.skannlet.util.formatQuantity
 
 @Composable
 fun CollectionDetailRoute(
@@ -65,7 +70,8 @@ fun CollectionDetailRoute(
     onRenameCollection: (String, String) -> Unit,
     onUnlockCollection: (String) -> Unit,
     onDeleteCollection: (String) -> Unit,
-    onUpdateQuantity: (String, Int) -> Unit,
+    onUpdateQuantity: (String, Float) -> Unit,
+    onUpdateScanRowComment: (String, String) -> Unit,
     onDeleteScanRow: (String) -> Unit,
     onExportCollection: (String, CollectionPrintDocument, String) -> Unit,
     onPrintLabel: (String) -> Unit,
@@ -74,6 +80,7 @@ fun CollectionDetailRoute(
 ) {
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    var commentRowId by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val detail = uiState.detail
 
@@ -91,6 +98,7 @@ fun CollectionDetailRoute(
         onUnlock = { onUnlockCollection(detail.id) },
         onDelete = { showDeleteDialog = true },
         onQuantityChange = onUpdateQuantity,
+        onEditComment = { commentRowId = it },
         onDeleteRow = onDeleteScanRow,
         onExport = {
             onExportCollection(
@@ -146,6 +154,23 @@ fun CollectionDetailRoute(
             },
         )
     }
+
+
+    commentRowId?.let { rowId ->
+        val row = detail.rows.firstOrNull { it.id == rowId }
+        if (row == null || detail.isLocked) {
+            commentRowId = null
+        } else {
+            ScanRowCommentDialog(
+                initialComment = row.comment,
+                onConfirm = { comment ->
+                    commentRowId = null
+                    onUpdateScanRowComment(row.id, comment)
+                },
+                onDismiss = { commentRowId = null },
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -158,7 +183,8 @@ fun CollectionDetailScreen(
     onRename: () -> Unit,
     onUnlock: () -> Unit,
     onDelete: () -> Unit,
-    onQuantityChange: (String, Int) -> Unit,
+    onQuantityChange: (String, Float) -> Unit,
+    onEditComment: (String) -> Unit,
     onDeleteRow: (String) -> Unit,
     onExport: () -> Unit,
     onPrintCollection: () -> Unit,
@@ -169,6 +195,7 @@ fun CollectionDetailScreen(
     Scaffold(
         modifier = modifier
             .fillMaxSize(),
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             CollectionDetailTopAppBar(
                 title = detail.name,
@@ -259,7 +286,9 @@ fun CollectionDetailScreen(
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                 ) {
                     items(detail.rows, key = { it.id }) { row ->
                         ScanRowItem(
@@ -268,6 +297,7 @@ fun CollectionDetailScreen(
                             isPrintingLabel = printingLabelRowId == row.id,
                             isPrintLabelEnabled = printingLabelRowId == null,
                             onQuantityChange = { quantity -> onQuantityChange(row.id, quantity) },
+                            onEditComment = { onEditComment(row.id) },
                             onDelete = { onDeleteRow(row.id) },
                             onPrintLabel = { onPrintLabel(row.id) },
                         )
@@ -372,7 +402,7 @@ private fun printCollection(
     detail: CollectionDetailUiState,
 ) {
     val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-    val jobName = "Samling_${detail.name}".sanitizePrintJobName()
+    val jobName = detail.printJobName()
     val printDocument = detail.toPrintDocument()
     printManager.print(
         jobName,
@@ -390,11 +420,14 @@ private fun String.sanitizePrintJobName(): String {
     return sanitized.ifBlank { "Prosjekt" }
 }
 
-private fun CollectionDetailUiState.printFileName(): String =
-    "${"Samling_$name".sanitizePrintJobName()}.pdf"
+internal fun CollectionDetailUiState.printJobName(): String =
+    "${collectionDocumentType(isReturn)}_$name".sanitizePrintJobName()
+
+internal fun CollectionDetailUiState.printFileName(): String =
+    "${printJobName()}.pdf"
 
 private fun CollectionDetailUiState.printTitle(): String {
-    val documentType = if (isReturn) "Retur" else "Utlevering"
+    val documentType = collectionDocumentType(isReturn)
     return "$documentType #$projectNumber | $name"
 }
 
@@ -405,10 +438,11 @@ internal fun CollectionDetailUiState.toPrintDocument(): CollectionPrintDocument 
         metaText = "$scanCount skanninger | Sist endret: ${formatDateTime(updatedAt)} | Opprettet av: $creator",
         rows = rows.map { row ->
             CollectionPrintRow(
-                quantity = row.quantity.toString(),
+                quantity = formatQuantity(row.quantity),
                 barcode = row.barcode,
                 productName = row.productName,
                 createdAt = formatDateTime(row.createdAt),
+                comment = row.comment,
             )
         },
     )
@@ -422,6 +456,7 @@ private fun MissingCollection(
     Scaffold(
         modifier = modifier
             .fillMaxSize(),
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             CollectionDetailTopAppBar(
                 title = "Prosjekt",
@@ -497,7 +532,8 @@ private fun ScanRowItem(
     isCollectionLocked: Boolean,
     isPrintingLabel: Boolean,
     isPrintLabelEnabled: Boolean,
-    onQuantityChange: (Int) -> Unit,
+    onQuantityChange: (Float) -> Unit,
+    onEditComment: () -> Unit,
     onDelete: () -> Unit,
     onPrintLabel: () -> Unit,
     modifier: Modifier = Modifier,
@@ -544,7 +580,10 @@ private fun ScanRowItem(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     if (isCollectionLocked) {
-                        Text("Antall: ${row.quantity}", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Antall: ${formatQuantity(row.quantity)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     } else if (row.quantityLocked) {
                         Text("Antall låst: 1", style = MaterialTheme.typography.bodyMedium)
                     } else {
@@ -556,32 +595,96 @@ private fun ScanRowItem(
                         )
                     }
                 }
-                IconButton(
-                    enabled = isPrintLabelEnabled,
-                    onClick = onPrintLabel,
-                    modifier = Modifier.semantics {
-                        contentDescription = if (isPrintingLabel) {
-                            "Skriver ut etikett for ${row.barcode}"
-                        } else {
-                            "Skriv ut etikett for ${row.barcode}"
-                        }
-                    },
-                ) {
-                    if (isPrintingLabel) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
+                Row {
+                    IconButton(
+                        enabled = !isCollectionLocked && !isPrintingLabel,
+                        onClick = onEditComment,
+                        modifier = Modifier.semantics {
+                            contentDescription = if (row.comment.isBlank()) {
+                                "Legg til kommentar for ${row.barcode}"
+                            } else {
+                                "Rediger kommentar for ${row.barcode}"
+                            }
+                        },
+                    ) {
                         Icon(
-                            painter = painterResource(R.drawable.print_24px),
+                            painter = painterResource(R.drawable.comment_24px),
                             contentDescription = null,
                         )
+                    }
+                    IconButton(
+                        enabled = isPrintLabelEnabled,
+                        onClick = onPrintLabel,
+                        modifier = Modifier.semantics {
+                            contentDescription = if (isPrintingLabel) {
+                                "Skriver ut etikett for ${row.barcode}"
+                            } else {
+                                "Skriv ut etikett for ${row.barcode}"
+                            }
+                        },
+                    ) {
+                        if (isPrintingLabel) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(R.drawable.print_24px),
+                                contentDescription = null,
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ScanRowCommentDialog(
+    initialComment: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var comment by rememberSaveable(initialComment) { mutableStateOf(initialComment) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initialComment.isBlank()) "Legg til kommentar" else "Rediger kommentar") },
+        text = {
+            OutlinedTextField(
+                value = comment,
+                onValueChange = { value ->
+                    comment = value.take(MAX_SCAN_ROW_COMMENT_LENGTH)
+                },
+                label = { Text("Kommentar") },
+                supportingText = {
+                    Text("${comment.length}/$MAX_SCAN_ROW_COMMENT_LENGTH")
+                },
+                minLines = 3,
+                maxLines = 6,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(comment) }) {
+                Text("Lagre")
+            }
+        },
+        dismissButton = {
+            Row {
+                if (initialComment.isNotBlank()) {
+                    TextButton(onClick = { onConfirm("") }) {
+                        Text("Fjern")
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Avbryt")
+                }
+            }
+        },
+    )
 }
 
 @Preview(showBackground = true)
@@ -591,7 +694,7 @@ private fun CollectionDetailScreenPreview() {
         detail = CollectionDetailUiState(
             id = "1",
             projectNumber = 1,
-            name = "Varetelling juni",
+            name = "1888 Kongsvinger",
             creatorName = "Kari Nordmann",
             isReturn = true,
             scanCount = 2,
@@ -603,7 +706,7 @@ private fun CollectionDetailScreenPreview() {
                     id = "r1",
                     barcode = "123456",
                     productName = "Demo vare - seks siffer",
-                    quantity = 3,
+                    quantity = 3f,
                     quantityLocked = false,
                     createdAt = System.currentTimeMillis(),
                 ),
@@ -611,7 +714,7 @@ private fun CollectionDetailScreenPreview() {
                     id = "r2",
                     barcode = "7038010000017",
                     productName = "Demo vare - strekkode",
-                    quantity = 1,
+                    quantity = 1f,
                     quantityLocked = true,
                     createdAt = System.currentTimeMillis(),
                 ),
@@ -624,6 +727,7 @@ private fun CollectionDetailScreenPreview() {
         onUnlock = {},
         onDelete = {},
         onQuantityChange = { _, _ -> },
+        onEditComment = {},
         onDeleteRow = {},
         onExport = {},
         onPrintCollection = {},

@@ -60,6 +60,8 @@ fun AppNavGraph(
                     navController.navigate(AppRoutes.collectionDetail(collectionId))
                 },
                 onSetActiveCollection = viewModel::setActiveCollection,
+                onSetCollectionReturnStatus = viewModel::setCollectionReturnStatus,
+                onLockCollection = viewModel::lockCollection,
                 onUnlockCollection = viewModel::unlockCollection,
                 onDeleteCollection = viewModel::deleteCollection,
                 onSetActiveUser = viewModel::setActiveUser,
@@ -70,6 +72,7 @@ fun AppNavGraph(
                 uiState = uiState.scan,
                 activeUserName = uiState.profile.activeUserName,
                 users = uiState.profile.users,
+                scannerEnabled = !uiState.isDockUserSelectionRequired,
                 onScan = viewModel::scanBarcode,
                 onUpdateQuantity = viewModel::updateQuantity,
                 onDeleteRow = viewModel::deleteScanRow,
@@ -85,6 +88,7 @@ fun AppNavGraph(
             ProfileRoute(
                 uiState = uiState.profile,
                 labelPrinterState = uiState.labelPrinter,
+                appUpdateState = uiState.appUpdate,
                 onAddUser = viewModel::addUser,
                 onDeleteUser = viewModel::deleteUser,
                 onSetActiveUser = viewModel::setActiveUser,
@@ -96,6 +100,9 @@ fun AppNavGraph(
                 onSelectLabelFormat = viewModel::selectLabelFormat,
                 onSaveLabelFormat = viewModel::saveLabelFormat,
                 onDeleteLabelFormat = viewModel::deleteLabelFormat,
+                onCheckForUpdates = viewModel::showUpdateUiOrCheck,
+                onRequestBackup = { viewModel.requestAppDataBackup() },
+                onRestoreBackup = viewModel::restoreAppDataBackup,
             )
         }
         composable(
@@ -114,6 +121,7 @@ fun AppNavGraph(
                 onUnlockCollection = viewModel::unlockCollection,
                 onDeleteCollection = viewModel::deleteCollection,
                 onUpdateQuantity = viewModel::updateQuantity,
+                onUpdateScanRowComment = viewModel::updateScanRowComment,
                 onDeleteScanRow = viewModel::deleteScanRow,
                 printingLabelRowId = uiState.labelPrinter.printingRowId,
                 onPrintLabel = viewModel::printLabel,

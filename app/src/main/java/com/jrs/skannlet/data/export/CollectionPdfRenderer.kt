@@ -167,6 +167,7 @@ private fun drawRow(
     drawCellText(canvas, row.barcode, bodyPaint, COL_BARCODE_LEFT, y, COL_BARCODE_WIDTH)
     drawCellText(canvas, row.productName, bodyPaint, COL_PRODUCT_LEFT, y, COL_PRODUCT_WIDTH)
     drawCellText(canvas, row.createdAt, bodyPaint, COL_CREATED_LEFT, y, COL_CREATED_WIDTH)
+    drawCellText(canvas, row.comment, bodyPaint, COL_COMMENT_LEFT, y, COL_COMMENT_WIDTH)
     canvas.drawLine(PAGE_MARGIN, y + rowHeight, PDF_PAGE_WIDTH - PAGE_MARGIN, y + rowHeight, dividerPaint)
 }
 
@@ -197,7 +198,22 @@ private fun CollectionPrintRow.heightForPdf(): Float {
     val barcodeLines = barcode.wrapForPdf(bodyPaint, COL_BARCODE_WIDTH - CELL_PADDING * 2)
     val productLines = productName.wrapForPdf(bodyPaint, COL_PRODUCT_WIDTH - CELL_PADDING * 2)
     val createdLines = createdAt.wrapForPdf(bodyPaint, COL_CREATED_WIDTH - CELL_PADDING * 2)
-    val lineCount = maxOf(1, barcodeLines.size, productLines.size, createdLines.size)
+    val commentLines = comment.wrapForPdf(bodyPaint, COL_COMMENT_WIDTH - CELL_PADDING * 2)
+    return pdfRowHeight(
+        barcodeLineCount = barcodeLines.size,
+        productLineCount = productLines.size,
+        createdLineCount = createdLines.size,
+        commentLineCount = commentLines.size,
+    )
+}
+
+internal fun pdfRowHeight(
+    barcodeLineCount: Int,
+    productLineCount: Int,
+    createdLineCount: Int,
+    commentLineCount: Int,
+): Float {
+    val lineCount = maxOf(1, barcodeLineCount, productLineCount, createdLineCount, commentLineCount)
     return maxOf(TABLE_ROW_MIN_HEIGHT, CELL_PADDING * 2 + lineCount * ROW_LINE_HEIGHT)
 }
 

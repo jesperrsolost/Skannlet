@@ -11,4 +11,8 @@ data class CollectionPrintRow(
     val barcode: String,
     val productName: String,
     val createdAt: String,
+    val comment: String = "",
 )
+
+internal fun collectionDocumentType(isReturn: Boolean): String =
+    if (isReturn) "Retur" else "Utlevering"

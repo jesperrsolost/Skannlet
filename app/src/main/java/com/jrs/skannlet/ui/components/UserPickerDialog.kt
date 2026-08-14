@@ -14,10 +14,13 @@ fun UserPickerDialog(
     users: List<UserUiState>,
     onSelectUser: (String) -> Unit,
     onDismiss: () -> Unit,
+    title: String = "Bytt bruker",
+    allowActiveUserSelection: Boolean = false,
+    dismissible: Boolean = true,
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Bytt bruker") },
+        onDismissRequest = { if (dismissible) onDismiss() },
+        title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (users.isEmpty()) {
@@ -25,7 +28,7 @@ fun UserPickerDialog(
                 } else {
                     users.forEach { user ->
                         TextButton(
-                            enabled = !user.isActive,
+                            enabled = allowActiveUserSelection || !user.isActive,
                             onClick = { onSelectUser(user.id) },
                         ) {
                             Text(if (user.isActive) "${user.name} (aktiv)" else user.name)
@@ -36,8 +39,10 @@ fun UserPickerDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Avbryt")
+            if (dismissible) {
+                TextButton(onClick = onDismiss) {
+                    Text("Avbryt")
+                }
             }
         },
     )
